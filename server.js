@@ -294,7 +294,8 @@ Use this Markdown structure:
 
 ${stylePrompts[style] ?? stylePrompts.detailed}
 
-Write clearly and concisely. No filler text or padding.`;
+Write clearly and concisely. No filler text or padding.
+CRITICAL INSTRUCTION: Output ONLY the requested Markdown notes. Do NOT output your thought process. Do NOT start by saying "The user wants me to..." or provide any conversational filler. Start your response directly with "## Key Takeaways".`;
 
     const completion = await ai.chat.completions.create({
       model,
@@ -306,8 +307,12 @@ Write clearly and concisely. No filler text or padding.`;
       temperature,
     });
 
-    const notes = completion.choices[0]?.message?.content;
+    let notes = completion.choices[0]?.message?.content;
     if (!notes) return res.status(500).json({ error: 'No notes were generated. Please try again.' });
+
+    // DeepSeek R1 and other reasoning models often output their thoughts in <think> tags.
+    // We strip these tags and their content out to hide the prompt/thought process from the user.
+    notes = notes.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
 
     res.json({
       success: true,
