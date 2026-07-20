@@ -156,7 +156,19 @@ async function callAPI(url, style) {
       effort: effortSelect.value,
     }),
   });
-  const data = await res.json();
+
+  const text = await res.text();
+  if (!text) {
+    throw new Error('Server returned an empty response. The request may have timed out — please try again.');
+  }
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error('Server returned an invalid response. Please try again.');
+  }
+
   if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
   return data;
 }
