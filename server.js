@@ -97,82 +97,29 @@ async function transcribeAudioFallback(videoId) {
   }
 }
 
+const { YoutubeTranscript } = require('youtube-transcript');
+
 async function fetchTranscript(videoId) {
-  // Use yt-dlp to extract the video metadata and subtitles
-  // This bypasses most of YouTube's IP blocks
-  const output = await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, getYoutubeDlOptions({
-    dumpJson: true,
-    skipDownload: true,
-    subLangs: 'all',
-    writeAutoSubs: true,
-    writeSubs: true,
-  }));
-
-  let subUrl = null;
-
-  const subs = output.subtitles || {};
-  const autoSubs = output.automatic_captions || {};
-
-  // Find English first, otherwise pick the first available language
-  let selectedTrack = null;
-  
-  const getEn = (tracks) => tracks['en'] || tracks['en-US'] || tracks['en-GB'] || tracks['en-orig'];
-  const getFirst = (tracks) => {
-    const keys = Object.keys(tracks);
-    return keys.length > 0 ? tracks[keys[0]] : null;
-  };
-
-  selectedTrack = getEn(subs) || getEn(autoSubs) || getFirst(subs) || getFirst(autoSubs);
-
-  if (!selectedTrack || selectedTrack.length === 0) {
-    console.error('Debug: No suitable track found in subs or autoSubs');
-    console.error('Debug: Manual subs keys:', Object.keys(subs));
-    console.error('Debug: Auto subs keys:', Object.keys(autoSubs));
-    throw new Error('NO_CAPTIONS_TRACKS_NOT_FOUND');
-  }
-
-  // Find json3 format which contains the easiest to parse text structure
-  const json3 = selectedTrack.find(s => s.ext === 'json3');
-  if (json3) {
-    subUrl = json3.url;
-    console.log('Debug: Found json3 URL:', subUrl.substring(0, 100) + '...');
-  } else {
-    console.error('Debug: json3 format not found in selected track');
-    console.error('Debug: Available formats:', selectedTrack.map(s => s.ext));
-    throw new Error('NO_CAPTIONS_JSON3_MISSING');
-  }
-
-  // Fetch the actual subtitle data
-  const capRes = await fetch(subUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
+  try {
+    const transcript = await YoutubeTranscript.fetchTranscript(videoId);
+    if (!transcript || transcript.length === 0) {
+      throw new Error('NO_CAPTIONS');
     }
-  });
-  if (!capRes.ok) {
-    console.error('Failed to fetch caption URL:', capRes.status, capRes.statusText);
-    throw new Error('CAPTION_FETCH_FAILED');
+    
+    // Extract just the text from the objects
+    const segments = transcript.map(item => item.text).filter(t => t.trim());
+    
+    if (segments.length === 0) {
+      throw new Error('NO_CAPTIONS');
+    }
+    
+    return segments;
+  } catch (err) {
+    if (err.message.includes('Transcript is disabled') || err.message.includes('No transcript found')) {
+      throw new Error('NO_CAPTIONS');
+    }
+    throw err;
   }
-
-  const capData = await capRes.json();
-  const events = capData?.events;
-
-  if (!events || events.length === 0) {
-    console.error('Caption fetch succeeded but no events/segments found.');
-    throw new Error('NO_CAPTIONS');
-  }
-
-  // Extract text segments
-  const segments = events
-    .filter(e => e.segs)
-    .map(e => e.segs.map(s => s.utf8).join(''))
-    .filter(t => t.trim());
-
-  if (segments.length === 0) {
-    throw new Error('NO_CAPTIONS');
-  }
-
-  return segments;
 }
 
 const MODEL_DISPLAY_NAMES = {
