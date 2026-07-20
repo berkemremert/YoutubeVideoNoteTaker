@@ -3,346 +3,325 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>NoteFlow — AI YouTube Note Taker</title>
-  <meta name="description" content="Transform any YouTube video into beautiful, structured AI-powered notes in seconds." />
+  <title>YouNote — AI YouTube Notes</title>
+  <meta name="description" content="Transform YouTube videos into structured AI-powered notes instantly." />
+  <link rel="icon" type="image/png" href="/icon.png" />
+  <link rel="apple-touch-icon" href="/icon.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <!-- Animated background -->
-  <div class="bg-orbs" aria-hidden="true">
-    <div class="orb orb-1"></div>
-    <div class="orb orb-2"></div>
-    <div class="orb orb-3"></div>
-  </div>
 
-  <!-- Header -->
+  <!-- ── Header ── -->
   <header class="header">
-    <div class="header-inner">
-      <div class="logo">
-        <div class="logo-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-            <path d="M2 17l10 5 10-5"/>
-            <path d="M2 12l10 5 10-5"/>
-          </svg>
-        </div>
-        <span class="logo-text">NoteFlow</span>
-        <span class="logo-badge">AI</span>
-      </div>
-      <div class="header-tagline">Powered by Fireworks AI</div>
+    <div class="container header-inner">
+      <a class="brand" href="/" aria-label="YouNote home">
+        <img class="brand-mark" src="/icon.png" alt="YouNote" />
+        <span class="brand-name">YouNote</span>
+      </a>
     </div>
   </header>
 
-  <!-- Main content -->
-  <main class="main">
+  <!-- ── Main ── -->
+  <main class="container main">
 
-    <!-- Hero -->
-    <section class="hero">
-      <div class="hero-eyebrow">
-        <span class="eyebrow-dot" aria-hidden="true"></span>
-        YouTube → AI Notes
+    <!-- Page heading -->
+    <div class="page-heading">
+      <h1 class="page-title">YouTube Note Generator</h1>
+      <p class="page-subtitle">Paste a video link and get structured notes in seconds.</p>
+    </div>
+
+    <!-- Shared Settings: Model + Effort -->
+    <div class="settings-row">
+      <div class="field">
+        <label class="field-label" for="model-select">
+          <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Model
+        </label>
+        <div class="select-wrap">
+          <select class="select" id="model-select" disabled>
+            <option>Loading…</option>
+          </select>
+          <svg class="select-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+        </div>
       </div>
-      <h1 class="hero-title">Turn any video into<br /><span class="gradient-text">structured notes</span></h1>
-      <p class="hero-subtitle">Paste a single link or upload a playlist file — let AI extract the knowledge for you.</p>
-    </section>
+      <div class="field">
+        <label class="field-label" for="effort-select">
+          <svg class="icon-xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+          Effort
+        </label>
+        <div class="select-wrap">
+          <select class="select" id="effort-select">
+            <option value="quick">Quick — Concise, fast</option>
+            <option value="standard" selected>Standard — Balanced</option>
+            <option value="deep">Deep — Comprehensive</option>
+          </select>
+          <svg class="select-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+        </div>
+      </div>
+    </div>
 
-    <!-- Mode Tabs -->
-    <div class="tabs" role="tablist" aria-label="Mode selection">
-      <button class="tab tab--active" id="tab-single" role="tab" aria-selected="true" aria-controls="panel-single">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-          <polyline points="14 2 14 8 20 8"/>
-        </svg>
+    <!-- Tabs -->
+    <div class="tabs-list" role="tablist" aria-label="Mode">
+      <button class="tab active" id="tab-single" role="tab" aria-selected="true" aria-controls="panel-single">
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.41 19.6C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.95-1.95A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z"/><polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02"/></svg>
         Single Video
       </button>
       <button class="tab" id="tab-batch" role="tab" aria-selected="false" aria-controls="panel-batch">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
-        </svg>
+        <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h.01"/><path d="M7 20v-4"/><path d="M12 20v-8"/><path d="M17 20V8"/><path d="M22 4v16"/></svg>
         Batch Mode
-        <span class="tab-badge">TXT</span>
       </button>
     </div>
 
-    <!-- ══════════════════════════════════════════
+    <!-- ═══════════════════════════════
          SINGLE VIDEO PANEL
-    ══════════════════════════════════════════ -->
-    <section id="panel-single" role="tabpanel" aria-labelledby="tab-single">
+    ═══════════════════════════════ -->
+    <div id="panel-single" role="tabpanel" aria-labelledby="tab-single" class="panel">
 
-      <div class="card input-card">
+      <div class="card">
         <div class="card-body">
-          <!-- URL input -->
-          <div class="field-group">
-            <label for="youtube-url" class="field-label">YouTube URL</label>
-            <div class="input-wrapper" id="input-wrapper">
-              <div class="input-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                </svg>
-              </div>
-              <input type="url" id="youtube-url" class="url-input" placeholder="https://www.youtube.com/watch?v=..." autocomplete="off" spellcheck="false" />
-              <button class="clear-btn" id="clear-btn" aria-label="Clear input" style="display:none;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
-                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
+
+          <div class="field">
+            <label class="field-label" for="youtube-url">YouTube URL</label>
+            <div class="input-group" id="input-group">
+              <span class="input-adornment">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              </span>
+              <input type="url" id="youtube-url" class="input" placeholder="https://www.youtube.com/watch?v=…" autocomplete="off" spellcheck="false" />
+              <button class="input-clear" id="clear-btn" aria-label="Clear" style="display:none">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
           </div>
 
-          <!-- Note style -->
-          <div class="field-group">
+          <div class="field">
             <label class="field-label">Note Style</label>
-            <div class="style-grid" role="group" aria-label="Choose note style">
-              <label class="style-card">
+            <div class="toggle-group" role="radiogroup" aria-label="Note style">
+              <label class="toggle-item">
                 <input type="radio" name="style" value="detailed" checked />
-                <div class="style-icon">📝</div>
-                <div class="style-name">Detailed</div>
-                <div class="style-desc">Full coverage of all points</div>
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+                Detailed
               </label>
-              <label class="style-card">
+              <label class="toggle-item">
                 <input type="radio" name="style" value="summary" />
-                <div class="style-icon">⚡</div>
-                <div class="style-name">Summary</div>
-                <div class="style-desc">Quick executive overview</div>
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                Summary
               </label>
-              <label class="style-card">
+              <label class="toggle-item">
                 <input type="radio" name="style" value="bullets" />
-                <div class="style-icon">🎯</div>
-                <div class="style-name">Bullets</div>
-                <div class="style-desc">Structured bullet points</div>
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                Bullets
               </label>
-              <label class="style-card">
+              <label class="toggle-item">
                 <input type="radio" name="style" value="study" />
-                <div class="style-icon">🎓</div>
-                <div class="style-name">Study</div>
-                <div class="style-desc">Key terms &amp; exam prep</div>
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+                Study
               </label>
             </div>
           </div>
 
-          <button class="generate-btn" id="generate-btn">
-            <span class="btn-content" id="btn-content">
-              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-              </svg>
-              Generate Notes
-            </span>
+          <button class="btn btn-primary btn-lg w-full" id="generate-btn" type="button">
+            <svg id="generate-icon" class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            <span id="btn-label">Generate Notes</span>
           </button>
         </div>
       </div>
 
       <!-- Error -->
-      <div class="error-toast" id="error-toast" role="alert" aria-live="polite" style="display:none;">
-        <div class="error-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-        </div>
+      <div class="alert alert-error" id="error-toast" role="alert" style="display:none">
+        <svg class="icon-sm flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span id="error-message"></span>
       </div>
 
       <!-- Loading -->
-      <div class="loading-card card" id="loading-card" style="display:none;" aria-live="polite">
+      <div class="card" id="loading-card" style="display:none" aria-live="polite">
         <div class="loading-inner">
-          <div class="loading-spinner" aria-hidden="true">
-            <div class="spinner-ring"></div>
-            <div class="spinner-ring spinner-ring-2"></div>
-            <div class="spinner-ring spinner-ring-3"></div>
-          </div>
-          <div class="loading-text-group">
-            <div class="loading-title" id="loading-title">Fetching transcript…</div>
+          <div class="spinner"></div>
+          <div class="loading-info">
+            <p class="loading-title" id="loading-title">Fetching transcript…</p>
             <div class="loading-steps">
-              <div class="step" id="step-1" data-active="true"><div class="step-dot"></div><span>Extracting transcript</span></div>
-              <div class="step" id="step-2"><div class="step-dot"></div><span>Analyzing content</span></div>
-              <div class="step" id="step-3"><div class="step-dot"></div><span>Generating notes</span></div>
+              <div class="step" id="step-1" data-active="true">
+                <span class="step-dot"></span>
+                <span>Extract transcript</span>
+              </div>
+              <div class="step" id="step-2">
+                <span class="step-dot"></span>
+                <span>Analyze content</span>
+              </div>
+              <div class="step" id="step-3">
+                <span class="step-dot"></span>
+                <span>Generate notes</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- Results -->
-      <section class="card results-card" id="results-card" style="display:none;" aria-label="Generated notes">
-        <div class="results-header">
+      <div class="card" id="results-card" style="display:none">
+        <div class="results-toolbar">
           <div class="results-meta" id="results-meta"></div>
           <div class="results-actions">
-            <button class="action-btn" id="copy-btn" title="Copy Markdown">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              Copy
+            <button class="btn btn-ghost btn-sm" id="copy-btn" type="button">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <span id="copy-label">Copy</span>
             </button>
             <div class="dropdown-wrap">
-              <button class="action-btn action-btn--primary" id="single-download-btn">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Download
-                <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+              <button class="btn btn-outline btn-sm" id="single-download-btn" type="button">
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export
+                <svg class="icon-xs chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
               </button>
-              <div class="dropdown-menu" id="single-dropdown">
-                <button class="dropdown-item" data-format="md" id="dl-single-md">
-                  <span class="fmt-icon fmt-md">MD</span> Markdown (.md)
+              <div class="dropdown" id="single-dropdown">
+                <button class="dropdown-item" id="dl-single-md" type="button">
+                  <span class="fmt-badge fmt-md">MD</span>Markdown
                 </button>
-                <button class="dropdown-item" data-format="txt" id="dl-single-txt">
-                  <span class="fmt-icon fmt-txt">TXT</span> Plain Text (.txt)
+                <button class="dropdown-item" id="dl-single-txt" type="button">
+                  <span class="fmt-badge fmt-txt">TXT</span>Plain Text
                 </button>
-                <button class="dropdown-item" data-format="pdf" id="dl-single-pdf">
-                  <span class="fmt-icon fmt-pdf">PDF</span> PDF Document
+                <button class="dropdown-item" id="dl-single-pdf" type="button">
+                  <span class="fmt-badge fmt-pdf">PDF</span>PDF Document
                 </button>
               </div>
             </div>
-            <button class="action-btn" id="new-btn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.03"/></svg>
-              New
+            <button class="btn btn-ghost btn-sm" id="new-btn" type="button">
+              <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.03"/></svg>
+              Reset
             </button>
           </div>
         </div>
-        <div class="video-preview" id="video-preview" style="display:none;">
-          <a id="video-link" href="#" target="_blank" rel="noopener noreferrer" class="thumbnail-link">
-            <img id="video-thumbnail" src="" alt="Video thumbnail" class="thumbnail" />
-            <div class="play-overlay" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-            </div>
+
+        <div class="divider"></div>
+
+        <div id="video-preview" style="display:none" class="video-thumb-wrap">
+          <a id="video-link" href="#" target="_blank" rel="noopener noreferrer" class="video-thumb-link">
+            <img id="video-thumbnail" src="" alt="Video thumbnail" class="video-thumb-img" />
+            <span class="video-thumb-overlay">
+              <svg viewBox="0 0 24 24" fill="white" width="32" height="32"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            </span>
           </a>
         </div>
+
         <div class="notes-content" id="notes-content"></div>
-      </section>
+      </div>
 
-    </section><!-- /panel-single -->
+    </div><!-- /panel-single -->
 
 
-    <!-- ══════════════════════════════════════════
+    <!-- ═══════════════════════════════
          BATCH PANEL
-    ══════════════════════════════════════════ -->
-    <section id="panel-batch" role="tabpanel" aria-labelledby="tab-batch" style="display:none;">
+    ═══════════════════════════════ -->
+    <div id="panel-batch" role="tabpanel" aria-labelledby="tab-batch" class="panel" style="display:none">
 
-      <div class="card input-card">
+      <div class="card">
         <div class="card-body">
 
-          <!-- File upload zone -->
-          <div class="field-group">
-            <label class="field-label">Upload Playlist File (.txt)</label>
-            <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Upload TXT file">
-              <input type="file" id="file-input" accept=".txt" style="display:none;" />
-              <div class="drop-zone-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                  <polyline points="17 8 12 3 7 8"/>
-                  <line x1="12" y1="3" x2="12" y2="15"/>
-                </svg>
+          <div class="field">
+            <label class="field-label">Playlist File <span class="field-hint">(.txt)</span></label>
+            <div class="drop-zone" id="drop-zone" tabindex="0" role="button" aria-label="Upload playlist file">
+              <input type="file" id="file-input" accept=".txt" style="display:none" />
+              <div class="drop-icon" id="drop-icon-wrap">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
               </div>
-              <div class="drop-zone-text">
-                <span class="drop-main">Drop your .txt file here</span>
-                <span class="drop-sub">or <span class="drop-link">click to browse</span></span>
-              </div>
-              <div class="drop-zone-hint">
-                Format: topic title line, then YouTube URLs below it
-              </div>
+              <p class="drop-main" id="drop-main">Drop your <code>.txt</code> file or <span class="drop-link">browse</span></p>
+              <p class="drop-hint" id="drop-hint">Topic title on one line, then YouTube URLs below it</p>
             </div>
           </div>
 
-          <!-- Parsed preview -->
-          <div id="batch-preview" style="display:none;">
-            <div class="field-label" style="margin-bottom:10px;">Parsed Videos</div>
-            <div class="batch-preview-list" id="batch-preview-list"></div>
+          <div id="batch-preview" style="display:none">
+            <label class="field-label" style="margin-bottom:8px;display:block">Detected Groups</label>
+            <div class="preview-list" id="batch-preview-list"></div>
           </div>
 
-          <!-- Note style -->
-          <div class="field-group" id="batch-style-group" style="display:none;">
+          <div class="field" id="batch-style-group" style="display:none">
             <label class="field-label">Note Style</label>
-            <div class="style-grid" role="group">
-              <label class="style-card">
+            <div class="toggle-group" role="radiogroup">
+              <label class="toggle-item">
                 <input type="radio" name="batch-style" value="detailed" checked />
-                <div class="style-icon">📝</div>
-                <div class="style-name">Detailed</div>
-                <div class="style-desc">Full coverage</div>
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+                Detailed
               </label>
-              <label class="style-card">
+              <label class="toggle-item">
                 <input type="radio" name="batch-style" value="summary" />
-                <div class="style-icon">⚡</div>
-                <div class="style-name">Summary</div>
-                <div class="style-desc">Quick overview</div>
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                Summary
               </label>
-              <label class="style-card">
+              <label class="toggle-item">
                 <input type="radio" name="batch-style" value="bullets" />
-                <div class="style-icon">🎯</div>
-                <div class="style-name">Bullets</div>
-                <div class="style-desc">Bullet points</div>
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+                Bullets
               </label>
-              <label class="style-card">
+              <label class="toggle-item">
                 <input type="radio" name="batch-style" value="study" />
-                <div class="style-icon">🎓</div>
-                <div class="style-name">Study</div>
-                <div class="style-desc">Exam prep</div>
+                <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/></svg>
+                Study
               </label>
             </div>
           </div>
 
-          <button class="generate-btn" id="batch-start-btn" style="display:none;">
-            <span class="btn-content" id="batch-btn-content">
-              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-              </svg>
-              Start Batch Processing
-            </span>
+          <button class="btn btn-primary btn-lg w-full" id="batch-start-btn" type="button" style="display:none">
+            <svg class="icon-sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span id="batch-btn-label">Start Processing</span>
           </button>
         </div>
       </div>
 
       <!-- Batch error -->
-      <div class="error-toast" id="batch-error-toast" role="alert" style="display:none;">
-        <div class="error-icon" aria-hidden="true">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-        </div>
+      <div class="alert alert-error" id="batch-error-toast" role="alert" style="display:none">
+        <svg class="icon-sm flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         <span id="batch-error-message"></span>
       </div>
 
       <!-- Batch progress -->
-      <div class="card" id="batch-progress-card" style="display:none;">
-        <div class="batch-progress-header">
-          <div class="batch-progress-title">
-            <span id="batch-status-label">Processing…</span>
-            <span class="batch-counter" id="batch-counter"></span>
+      <div class="card" id="batch-progress-card" style="display:none">
+        <div class="progress-header">
+          <div class="progress-title-row">
+            <span class="progress-title" id="batch-status-label">Processing…</span>
+            <span class="counter-badge" id="batch-counter"></span>
           </div>
-          <div class="batch-progress-bar-wrap">
-            <div class="batch-progress-bar" id="batch-progress-bar" style="width:0%"></div>
+          <div class="progress-track">
+            <div class="progress-fill" id="batch-progress-bar" style="width:0%"></div>
           </div>
         </div>
-        <div class="batch-items-list" id="batch-items-list"></div>
+        <div class="divider"></div>
+        <div class="batch-list" id="batch-items-list"></div>
       </div>
 
       <!-- Batch export -->
-      <div class="card batch-export-card" id="batch-export-card" style="display:none;">
-        <div class="batch-export-header">
-          <div class="batch-export-info">
-            <div class="batch-export-title">🎉 Notes Ready</div>
-            <div class="batch-export-sub" id="batch-export-sub"></div>
-          </div>
-          <div class="batch-export-actions">
-            <button class="export-btn export-btn--md" id="batch-dl-md">
-              <span class="fmt-icon fmt-md">MD</span>
-              Download Markdown
-            </button>
-            <button class="export-btn export-btn--txt" id="batch-dl-txt">
-              <span class="fmt-icon fmt-txt">TXT</span>
-              Download Plain Text
-            </button>
-            <button class="export-btn export-btn--pdf" id="batch-dl-pdf">
-              <span class="fmt-icon fmt-pdf">PDF</span>
-              Download PDF
-            </button>
+      <div class="card" id="batch-export-card" style="display:none">
+        <div class="card-body">
+          <div class="export-row">
+            <div>
+              <p class="export-title">Notes Ready</p>
+              <p class="export-sub" id="batch-export-sub"></p>
+            </div>
+            <div class="export-btns">
+              <button class="btn btn-outline btn-sm" id="batch-dl-md" type="button">
+                <span class="fmt-badge fmt-md">MD</span>Markdown
+              </button>
+              <button class="btn btn-outline btn-sm" id="batch-dl-txt" type="button">
+                <span class="fmt-badge fmt-txt">TXT</span>Plain Text
+              </button>
+              <button class="btn btn-outline btn-sm" id="batch-dl-pdf" type="button">
+                <span class="fmt-badge fmt-pdf">PDF</span>PDF
+              </button>
+            </div>
           </div>
         </div>
-        <div class="batch-export-note">Individual notes can also be exported from the progress list above.</div>
       </div>
 
-    </section><!-- /panel-batch -->
+    </div><!-- /panel-batch -->
 
   </main>
 
+  <!-- ── Footer ── -->
   <footer class="footer">
-    <p>Built with ❤️ using <strong>Fireworks AI</strong> · DeepSeek V4 Pro</p>
+    <div class="container footer-inner">
+      <p class="footer-text">Created by <strong>Berk Emre Mert</strong></p>
+      <p class="footer-attr"><a href="https://www.flaticon.com/free-icons/video-editing" title="video editing icons" target="_blank" rel="noopener noreferrer">Video editing icons created by Hilmy Abiyyu A. - Flaticon</a></p>
+    </div>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/marked@9.1.6/marked.min.js"></script>

@@ -1,40 +1,53 @@
-/* ────────────────────────────────────────────────────────────
-   NoteFlow — Main App Logic
-   ──────────────────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════
+   YouNote — Application Logic
+════════════════════════════════════════════════════════ */
 
-// ── DOM refs ─────────────────────────────────────────────────
-const urlInput       = document.getElementById('youtube-url');
-const inputWrapper   = document.getElementById('input-wrapper');
-const clearBtn       = document.getElementById('clear-btn');
-const generateBtn    = document.getElementById('generate-btn');
-const btnContent     = document.getElementById('btn-content');
-const errorToast     = document.getElementById('error-toast');
-const errorMessage   = document.getElementById('error-message');
-const loadingCard    = document.getElementById('loading-card');
-const loadingTitle   = document.getElementById('loading-title');
-const resultsCard    = document.getElementById('results-card');
-const resultsMeta    = document.getElementById('results-meta');
-const notesContent   = document.getElementById('notes-content');
-const copyBtn        = document.getElementById('copy-btn');
-const newBtn         = document.getElementById('new-btn');
-const videoPreview   = document.getElementById('video-preview');
-const videoThumbnail = document.getElementById('video-thumbnail');
-const videoLink      = document.getElementById('video-link');
+// ── DOM refs ──────────────────────────────────────────────
+const modelSelect   = document.getElementById('model-select');
+const effortSelect  = document.getElementById('effort-select');
 
 // Tabs
-const tabSingle  = document.getElementById('tab-single');
-const tabBatch   = document.getElementById('tab-batch');
-const panelSingle= document.getElementById('panel-single');
-const panelBatch = document.getElementById('panel-batch');
+const tabSingle    = document.getElementById('tab-single');
+const tabBatch     = document.getElementById('tab-batch');
+const panelSingle  = document.getElementById('panel-single');
+const panelBatch   = document.getElementById('panel-batch');
+
+// Single
+const urlInput     = document.getElementById('youtube-url');
+const inputGroup   = document.getElementById('input-group');
+const clearBtn     = document.getElementById('clear-btn');
+const generateBtn  = document.getElementById('generate-btn');
+const generateIcon = document.getElementById('generate-icon');
+const btnLabel     = document.getElementById('btn-label');
+const errorToast   = document.getElementById('error-toast');
+const errorMsg     = document.getElementById('error-message');
+const loadingCard  = document.getElementById('loading-card');
+const loadingTitle = document.getElementById('loading-title');
+const resultsCard  = document.getElementById('results-card');
+const resultsMeta  = document.getElementById('results-meta');
+const notesContent = document.getElementById('notes-content');
+const copyBtn      = document.getElementById('copy-btn');
+const copyLabel    = document.getElementById('copy-label');
+const newBtn       = document.getElementById('new-btn');
+const videoPreview = document.getElementById('video-preview');
+const videoThumb   = document.getElementById('video-thumbnail');
+const videoLink    = document.getElementById('video-link');
+
+// Single download
+const singleDlBtn  = document.getElementById('single-download-btn');
+const singleDrop   = document.getElementById('single-dropdown');
+const chevron      = singleDlBtn.querySelector('.chevron');
 
 // Batch
 const dropZone         = document.getElementById('drop-zone');
 const fileInput        = document.getElementById('file-input');
+const dropMain         = document.getElementById('drop-main');
+const dropHint         = document.getElementById('drop-hint');
 const batchPreview     = document.getElementById('batch-preview');
 const batchPreviewList = document.getElementById('batch-preview-list');
 const batchStyleGroup  = document.getElementById('batch-style-group');
 const batchStartBtn    = document.getElementById('batch-start-btn');
-const batchBtnContent  = document.getElementById('batch-btn-content');
+const batchBtnLabel    = document.getElementById('batch-btn-label');
 const batchErrorToast  = document.getElementById('batch-error-toast');
 const batchErrorMsg    = document.getElementById('batch-error-message');
 const batchProgressCard= document.getElementById('batch-progress-card');
@@ -45,134 +58,181 @@ const batchItemsList   = document.getElementById('batch-items-list');
 const batchExportCard  = document.getElementById('batch-export-card');
 const batchExportSub   = document.getElementById('batch-export-sub');
 
-// Single download dropdown
-const singleDownloadBtn = document.getElementById('single-download-btn');
-const singleDropdown    = document.getElementById('single-dropdown');
-
-// State
+// ── State ─────────────────────────────────────────────────
 let currentNotes   = '';
 let currentVideoId = '';
-let batchItems     = [];   // [{name, url, index, status, notes, error}]
-let batchResults   = [];   // completed notes accumulator
+let batchItems     = [];
+let batchResults   = [];
 let batchRunning   = false;
 
-/* ════════════════════════════════════════════════════════════
-   TABS
-═══════════════════════════════════════════════════════════════ */
-function switchTab(tab) {
-  if (tab === 'single') {
-    tabSingle.classList.add('tab--active');
-    tabBatch.classList.remove('tab--active');
-    tabSingle.setAttribute('aria-selected', 'true');
-    tabBatch.setAttribute('aria-selected', 'false');
-    panelSingle.style.display = '';
-    panelBatch.style.display = 'none';
-  } else {
-    tabBatch.classList.add('tab--active');
-    tabSingle.classList.remove('tab--active');
-    tabBatch.setAttribute('aria-selected', 'true');
-    tabSingle.setAttribute('aria-selected', 'false');
-    panelBatch.style.display = '';
-    panelSingle.style.display = 'none';
+// Inline SVGs for dynamic batch status indicators
+const STATUS_ICON = {
+  done:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
+  error: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+};
+
+/* ════════════════════════════════════════════════════════
+   MODEL LOADING
+════════════════════════════════════════════════════════ */
+async function loadModels() {
+  try {
+    const res  = await fetch('/api/models');
+    const data = await res.json();
+    if (data.models?.length) {
+      modelSelect.innerHTML = data.models.map(m =>
+        `<option value="${escHtml(m.id)}">${escHtml(m.name)}</option>`
+      ).join('');
+      // Default to deepseek if available
+      const pref = [...modelSelect.options].find(o => o.value.includes('deepseek'));
+      if (pref) pref.selected = true;
+    } else {
+      modelSelect.innerHTML = '<option value="accounts/fireworks/models/deepseek-v4-pro">DeepSeek V4 Pro</option>';
+    }
+  } catch {
+    modelSelect.innerHTML = '<option value="accounts/fireworks/models/deepseek-v4-pro">DeepSeek V4 Pro</option>';
   }
+  modelSelect.disabled = false;
 }
+loadModels();
+
+/* ════════════════════════════════════════════════════════
+   TABS
+════════════════════════════════════════════════════════ */
 tabSingle.addEventListener('click', () => switchTab('single'));
 tabBatch.addEventListener('click',  () => switchTab('batch'));
 
-/* ════════════════════════════════════════════════════════════
+function switchTab(tab) {
+  const isSingle = tab === 'single';
+  tabSingle.classList.toggle('active', isSingle);
+  tabBatch.classList.toggle('active', !isSingle);
+  tabSingle.setAttribute('aria-selected', String(isSingle));
+  tabBatch.setAttribute('aria-selected',  String(!isSingle));
+  panelSingle.style.display = isSingle ? '' : 'none';
+  panelBatch.style.display  = isSingle ? 'none' : '';
+}
+
+/* ════════════════════════════════════════════════════════
    SINGLE VIDEO
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════ */
 urlInput.addEventListener('input', () => {
   clearBtn.style.display = urlInput.value.trim() ? 'flex' : 'none';
   hideError();
 });
-urlInput.addEventListener('focus', () => inputWrapper.classList.add('focused'));
-urlInput.addEventListener('blur',  () => inputWrapper.classList.remove('focused'));
 urlInput.addEventListener('keydown', e => { if (e.key === 'Enter') handleGenerate(); });
-clearBtn.addEventListener('click', () => { urlInput.value = ''; clearBtn.style.display = 'none'; urlInput.focus(); hideError(); });
+clearBtn.addEventListener('click',   () => { urlInput.value = ''; clearBtn.style.display = 'none'; urlInput.focus(); hideError(); });
 
 generateBtn.addEventListener('click', handleGenerate);
 
 async function handleGenerate() {
   const url = urlInput.value.trim();
-  if (!url) { showError('Please paste a YouTube URL first.'); urlInput.focus(); return; }
+  if (!url) { showError('Please paste a YouTube URL.'); urlInput.focus(); return; }
   const style = document.querySelector('input[name="style"]:checked')?.value || 'detailed';
+
   hideError();
-  setLoading(true);
+  setGenerateLoading(true);
   resultsCard.style.display = 'none';
+
   try {
-    animateLoadingSteps();
-    const data = await callGenerateAPI(url, style);
+    animateSteps();
+    const data = await callAPI(url, style);
     currentNotes   = data.notes;
     currentVideoId = data.videoId;
-    showSingleResults(data);
+    showResults(data);
   } catch (err) {
-    showError(err.message || 'Something went wrong. Please try again.');
+    showError(err.message || 'Something went wrong.');
   } finally {
-    setLoading(false);
+    setGenerateLoading(false);
   }
 }
 
-async function callGenerateAPI(url, style) {
+async function callAPI(url, style) {
   const res = await fetch('/api/generate-notes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, style }),
+    body: JSON.stringify({
+      url,
+      style,
+      model:  modelSelect.value,
+      effort: effortSelect.value,
+    }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
+  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
   return data;
 }
 
-// Loading animation
-let stepInterval = null;
-function animateLoadingSteps() {
+// Step animation
+let stepTimer = null;
+function animateSteps() {
   const steps = [
-    { id: 'step-1', title: 'Fetching transcript…' },
-    { id: 'step-2', title: 'Analyzing content…' },
-    { id: 'step-3', title: 'Generating your notes…' },
+    { id: 'step-1', title: 'Fetching transcript…'  },
+    { id: 'step-2', title: 'Analyzing content…'    },
+    { id: 'step-3', title: 'Generating notes…'     },
   ];
-  let idx = 0;
-  function advance() {
-    steps.forEach((s, i) => {
+  let i = 0;
+  function tick() {
+    steps.forEach((s, si) => {
       const el = document.getElementById(s.id);
       if (!el) return;
-      el.removeAttribute('data-active'); el.removeAttribute('data-done');
-      if (i < idx) el.setAttribute('data-done', 'true');
-      if (i === idx) el.setAttribute('data-active', 'true');
+      el.removeAttribute('data-active');
+      el.removeAttribute('data-done');
+      if (si < i)  el.setAttribute('data-done',   'true');
+      if (si === i) el.setAttribute('data-active', 'true');
     });
-    if (idx < steps.length) loadingTitle.textContent = steps[idx].title;
+    if (i < steps.length) loadingTitle.textContent = steps[i].title;
   }
-  advance();
-  stepInterval = setInterval(() => { idx = (idx + 1) % steps.length; advance(); }, 2800);
+  tick();
+  stepTimer = setInterval(() => {
+    if (i < steps.length - 1) { i++; tick(); }
+  }, 2800);
 }
-function clearStepAnimation() {
-  if (stepInterval) { clearInterval(stepInterval); stepInterval = null; }
+function clearSteps() {
+  if (stepTimer) { clearInterval(stepTimer); stepTimer = null; }
   ['step-1','step-2','step-3'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.removeAttribute('data-active'); el.setAttribute('data-done','true'); }
   });
 }
-function setLoading(on) {
+
+function setGenerateLoading(on) {
+  generateBtn.disabled = on;
   if (on) {
     loadingCard.style.display = 'block';
-    generateBtn.disabled = true;
-    btnContent.innerHTML = `<svg class="btn-icon spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>Generating…`;
+    generateIcon.outerHTML = `<div class="btn-spinner" id="generate-icon"></div>`;
+    btnLabel.textContent = 'Generating…';
   } else {
     loadingCard.style.display = 'none';
-    generateBtn.disabled = false;
-    btnContent.innerHTML = `<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Generate Notes`;
-    clearStepAnimation();
+    // restore icon
+    const placeholder = document.getElementById('generate-icon');
+    if (placeholder) {
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('id', 'generate-icon');
+      svg.setAttribute('class', 'icon-sm');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('fill', 'none');
+      svg.setAttribute('stroke', 'currentColor');
+      svg.setAttribute('stroke-width', '2');
+      svg.setAttribute('stroke-linecap', 'round');
+      svg.setAttribute('stroke-linejoin', 'round');
+      svg.innerHTML = '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>';
+      placeholder.replaceWith(svg);
+    }
+    btnLabel.textContent = 'Generate Notes';
+    clearSteps();
   }
 }
-function showError(msg) { errorMessage.textContent = msg; errorToast.style.display = 'flex'; }
-function hideError() { errorToast.style.display = 'none'; }
 
-function showSingleResults(data) {
-  videoThumbnail.src = `https://img.youtube.com/vi/${data.videoId}/hqdefault.jpg`;
+function showError(msg)  { errorMsg.textContent = msg; errorToast.style.display = 'flex'; }
+function hideError()     { errorToast.style.display = 'none'; }
+
+function showResults(data) {
+  videoThumb.src = `https://img.youtube.com/vi/${data.videoId}/hqdefault.jpg`;
   videoLink.href = data.videoUrl;
   videoPreview.style.display = 'block';
-  resultsMeta.innerHTML = `<span class="meta-chip">📄 ${(data.wordCount||0).toLocaleString()} words</span><span class="meta-chip">✨ AI-generated</span>`;
+  resultsMeta.innerHTML = `
+    <span class="stat-chip">${(data.wordCount || 0).toLocaleString()} words</span>
+    <span class="stat-chip">AI notes</span>
+  `;
   notesContent.innerHTML = marked.parse(data.notes || '');
   resultsCard.style.display = 'block';
   resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -183,63 +243,66 @@ copyBtn.addEventListener('click', async () => {
   if (!currentNotes) return;
   try {
     await navigator.clipboard.writeText(currentNotes);
-    copyBtn.classList.add('copied');
-    const orig = copyBtn.innerHTML;
-    copyBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;"><polyline points="20 6 9 17 4 12"/></svg>Copied!`;
-    setTimeout(() => { copyBtn.classList.remove('copied'); copyBtn.innerHTML = orig; }, 2000);
+    copyLabel.textContent = 'Copied!';
+    setTimeout(() => { copyLabel.textContent = 'Copy'; }, 2000);
   } catch { showError('Could not copy to clipboard.'); }
 });
 
-// New
+// Reset
 newBtn.addEventListener('click', () => {
-  resultsCard.style.display = 'none'; hideError();
-  urlInput.value = ''; clearBtn.style.display = 'none';
+  resultsCard.style.display = 'none';
+  hideError();
+  urlInput.value = '';
+  clearBtn.style.display = 'none';
   currentNotes = ''; currentVideoId = '';
   window.scrollTo({ top: 0, behavior: 'smooth' });
-  setTimeout(() => urlInput.focus(), 400);
+  setTimeout(() => urlInput.focus(), 350);
 });
 
-// Single download dropdown
-singleDownloadBtn.addEventListener('click', e => {
+/* ── Single download dropdown ─────────────────────────── */
+singleDlBtn.addEventListener('click', e => {
   e.stopPropagation();
-  singleDropdown.classList.toggle('open');
-  const chevron = singleDownloadBtn.querySelector('.chevron');
-  if (chevron) chevron.style.transform = singleDropdown.classList.contains('open') ? 'rotate(180deg)' : '';
+  const open = singleDrop.classList.toggle('open');
+  chevron.classList.toggle('open', open);
 });
 
 document.getElementById('dl-single-md').addEventListener('click', e => {
   e.stopPropagation();
   if (!currentNotes) return;
   downloadFile(currentNotes, `notes-${currentVideoId||'video'}.md`, 'text/markdown');
-  singleDropdown.classList.remove('open');
+  closeDropdown();
 });
 document.getElementById('dl-single-txt').addEventListener('click', e => {
   e.stopPropagation();
   if (!currentNotes) return;
   downloadFile(markdownToText(currentNotes), `notes-${currentVideoId||'video'}.txt`, 'text/plain');
-  singleDropdown.classList.remove('open');
+  closeDropdown();
 });
 document.getElementById('dl-single-pdf').addEventListener('click', e => {
   e.stopPropagation();
   if (!currentNotes) return;
   exportPDF([{ name: currentVideoId || 'Notes', notes: currentNotes }]);
-  singleDropdown.classList.remove('open');
+  closeDropdown();
 });
+function closeDropdown() {
+  singleDrop.classList.remove('open');
+  chevron.classList.remove('open');
+}
+document.addEventListener('click', closeDropdown);
 
-/* ════════════════════════════════════════════════════════════
-   BATCH MODE — FILE PARSING
-═══════════════════════════════════════════════════════════════ */
-dropZone.addEventListener('click', () => fileInput.click());
+/* ════════════════════════════════════════════════════════
+   BATCH — FILE PARSING
+════════════════════════════════════════════════════════ */
+dropZone.addEventListener('click',   () => fileInput.click());
 dropZone.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') fileInput.click(); });
 fileInput.addEventListener('change', () => { if (fileInput.files[0]) loadFile(fileInput.files[0]); });
-
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
 dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
 dropZone.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('drag-over');
   const file = e.dataTransfer.files[0];
-  if (file && file.name.endsWith('.txt')) loadFile(file);
+  if (file?.name.endsWith('.txt')) loadFile(file);
   else showBatchError('Please drop a .txt file.');
 });
 
@@ -247,188 +310,161 @@ function loadFile(file) {
   const reader = new FileReader();
   reader.onload = e => {
     const text = e.target.result;
-    batchItems = parseTxtFile(text);
-    if (batchItems.length === 0) { showBatchError('No valid YouTube URLs found in the file.'); return; }
+    batchItems = parseTxt(text);
+    if (!batchItems.length) { showBatchError('No valid YouTube URLs found in the file.'); return; }
     hideBatchError();
-    renderBatchPreview();
-    // Update drop zone UI
-    dropZone.classList.add('has-file');
-    dropZone.querySelector('.drop-main').textContent = '✅ File loaded';
-    dropZone.querySelector('.drop-sub').innerHTML = `<span class="drop-filename">${file.name}</span>`;
-    dropZone.querySelector('.drop-zone-hint').textContent = `${batchItems.length} videos across ${countGroups(batchItems)} topic(s)`;
+    renderPreview();
+    dropZone.classList.add('loaded');
+    dropMain.innerHTML = `<strong>${file.name}</strong> loaded`;
+    dropHint.textContent = `${batchItems.length} videos · ${countGroups()} topic(s)`;
+    batchStyleGroup.style.display = 'block';
+    batchStartBtn.style.display   = 'flex';
   };
   reader.readAsText(file);
 }
 
-function isUrl(str) {
-  return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/.test(str.trim());
+function isYTUrl(s) {
+  return /^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/.test(s.trim());
 }
 
-function parseTxtFile(text) {
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+function parseTxt(text) {
   const items = [];
-  let currentTitle = 'untitled';
-  const groupCount = {};
-
-  for (const line of lines) {
-    if (isUrl(line)) {
-      const count = (groupCount[currentTitle] || 0) + 1;
-      groupCount[currentTitle] = count;
-      items.push({
-        name: `${currentTitle}_${count}`,
-        url: line,
-        status: 'pending',
-        notes: null,
-        error: null,
-      });
+  let title = 'untitled';
+  const counts = {};
+  for (const raw of text.split('\n')) {
+    const line = raw.trim();
+    if (!line) continue;
+    if (isYTUrl(line)) {
+      const n = (counts[title] = (counts[title] || 0) + 1);
+      items.push({ name: `${title}_${n}`, url: line, status: 'pending', notes: null, error: null });
     } else {
-      // It's a title line — sanitize it
-      currentTitle = line.replace(/\s+/g, '_').toLowerCase();
+      title = line.replace(/\s+/g, '_').toLowerCase();
     }
   }
   return items;
 }
 
-function countGroups(items) {
-  const seen = new Set();
-  items.forEach(i => { const group = i.name.replace(/_\d+$/, ''); seen.add(group); });
-  return seen.size;
+function countGroups() {
+  return new Set(batchItems.map(i => i.name.replace(/_\d+$/, ''))).size;
 }
 
-function renderBatchPreview() {
-  // Group by prefix
+function renderPreview() {
   const groups = {};
-  batchItems.forEach(item => {
-    const group = item.name.replace(/_\d+$/, '');
-    groups[group] = (groups[group] || 0) + 1;
+  batchItems.forEach(i => {
+    const g = i.name.replace(/_\d+$/, '');
+    groups[g] = (groups[g] || 0) + 1;
   });
   batchPreviewList.innerHTML = Object.entries(groups).map(([name, count]) => `
-    <div class="preview-group">
-      <span class="preview-group-name">${name}</span>
-      <span class="preview-group-count">${count} video${count > 1 ? 's' : ''}</span>
+    <div class="preview-item">
+      <span class="preview-item-name">${escHtml(name)}</span>
+      <span class="preview-item-count">${count} video${count > 1 ? 's' : ''}</span>
     </div>
   `).join('');
   batchPreview.style.display = 'block';
-  batchStyleGroup.style.display = 'block';
-  batchStartBtn.style.display = 'block';
 }
 
-/* ════════════════════════════════════════════════════════════
-   BATCH MODE — PROCESSING
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════
+   BATCH — PROCESSING
+════════════════════════════════════════════════════════ */
 batchStartBtn.addEventListener('click', startBatch);
 
 async function startBatch() {
-  if (batchItems.length === 0 || batchRunning) return;
+  if (!batchItems.length || batchRunning) return;
   const style = document.querySelector('input[name="batch-style"]:checked')?.value || 'detailed';
   batchRunning = true;
   batchResults = [];
   hideBatchError();
   batchExportCard.style.display = 'none';
-
-  // Reset statuses
   batchItems.forEach(i => { i.status = 'pending'; i.notes = null; i.error = null; });
 
-  // Show progress
   batchProgressCard.style.display = 'block';
   batchProgressCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  renderBatchItems();
-  setBatchBtn(true);
+  renderBatchList();
+  setBatchLoading(true);
 
-  let done = 0;
   const total = batchItems.length;
+  let done = 0;
 
   for (let i = 0; i < batchItems.length; i++) {
     const item = batchItems[i];
     item.status = 'processing';
-    updateBatchItem(i);
     batchStatusLabel.textContent = `Processing ${item.name}…`;
     batchCounter.textContent = `${done} / ${total}`;
+    updateBatchRow(i);
 
     try {
-      const data = await callGenerateAPI(item.url, style);
-      item.notes = data.notes;
+      const data = await callAPI(item.url, style);
+      item.notes  = data.notes;
       item.status = 'done';
-      batchResults.push({ name: item.name, notes: data.notes, videoId: data.videoId });
+      batchResults.push({ name: item.name, notes: data.notes });
     } catch (err) {
-      item.error = err.message || 'Failed';
+      item.error  = err.message || 'Failed';
       item.status = 'error';
     }
     done++;
-    updateBatchItem(i);
+    updateBatchRow(i);
     batchProgressBar.style.width = `${Math.round((done / total) * 100)}%`;
     batchCounter.textContent = `${done} / ${total}`;
   }
 
-  // Done
-  batchStatusLabel.textContent = '✅ Processing complete';
-  setBatchBtn(false);
+  batchStatusLabel.textContent = 'Complete';
+  setBatchLoading(false);
   batchRunning = false;
-  const successCount = batchItems.filter(i => i.status === 'done').length;
-  batchExportSub.textContent = `${successCount} of ${total} notes generated successfully`;
+
+  const ok = batchItems.filter(i => i.status === 'done').length;
+  batchExportSub.textContent = `${ok} of ${total} notes generated`;
   batchExportCard.style.display = 'block';
   batchExportCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-function renderBatchItems() {
-  batchItemsList.innerHTML = batchItems.map((item, i) => buildBatchItemHTML(item, i)).join('');
+function renderBatchList() {
+  batchItemsList.innerHTML = batchItems.map((item, i) => buildRow(item, i)).join('');
 }
 
-function updateBatchItem(idx) {
-  const existing = document.getElementById(`batch-item-${idx}`);
-  if (existing) {
-    existing.outerHTML = buildBatchItemHTML(batchItems[idx], idx);
-  }
+function updateBatchRow(idx) {
+  const el = document.getElementById(`bi-${idx}`);
+  if (el) el.outerHTML = buildRow(batchItems[idx], idx);
 }
 
-function buildBatchItemHTML(item, idx) {
-  const statusClass = `status-${item.status}`;
-  const statusIcon = {
-    pending:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/></svg>`,
-    processing: ``,
-    done:       `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
-    error:      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+function buildRow(item, idx) {
+  const cls = `s-${item.status}`;
+  const indicator = {
+    pending:    '',
+    processing: '',
+    done:       STATUS_ICON.done,
+    error:      STATUS_ICON.error,
   }[item.status] || '';
 
-  const subText = item.status === 'error'
-    ? `<span style="color:var(--rose);font-size:12px;">${item.error}</span>`
-    : `<span class="batch-item-url">${item.url}</span>`;
+  const sub = item.status === 'error'
+    ? `<div class="batch-url" style="color:#fca5a5">${escHtml(item.error)}</div>`
+    : `<div class="batch-url">${escHtml(item.url)}</div>`;
 
-  const actions = item.status === 'done' ? `
-    <div class="batch-item-actions">
-      <button class="mini-btn mini-md" data-idx="${idx}" data-fmt="md">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        .md
-      </button>
-      <button class="mini-btn mini-txt" data-idx="${idx}" data-fmt="txt">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        .txt
-      </button>
-      <button class="mini-btn mini-pdf" data-idx="${idx}" data-fmt="pdf">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        PDF
-      </button>
+  const btns = item.status === 'done' ? `
+    <div class="batch-item-btns">
+      <button class="mini-dl" data-idx="${idx}" data-fmt="md">MD</button>
+      <button class="mini-dl" data-idx="${idx}" data-fmt="txt">TXT</button>
+      <button class="mini-dl" data-idx="${idx}" data-fmt="pdf">PDF</button>
     </div>
   ` : '';
 
   return `
-    <div class="batch-item ${statusClass}" id="batch-item-${idx}">
-      <div class="batch-item-status">${statusIcon}</div>
-      <div class="batch-item-info">
-        <div class="batch-item-name">${item.name}</div>
-        ${subText}
+    <div class="batch-item ${cls}" id="bi-${idx}">
+      <div class="batch-indicator">${indicator}</div>
+      <div class="batch-info">
+        <div class="batch-name">${escHtml(item.name)}</div>
+        ${sub}
       </div>
-      ${actions}
+      ${btns}
     </div>
   `;
 }
 
-// Single delegated listener for all batch item buttons — set up once, never duplicated
+// Delegated listener — set up once
 batchItemsList.addEventListener('click', e => {
-  const btn = e.target.closest('.mini-btn[data-idx]');
+  const btn = e.target.closest('.mini-dl[data-idx]');
   if (!btn) return;
-  const idx = parseInt(btn.dataset.idx);
-  const fmt = btn.dataset.fmt;
+  const idx  = parseInt(btn.dataset.idx);
+  const fmt  = btn.dataset.fmt;
   const item = batchItems[idx];
   if (!item?.notes) return;
   if (fmt === 'md')  downloadFile(item.notes, `${item.name}.md`, 'text/markdown');
@@ -436,134 +472,106 @@ batchItemsList.addEventListener('click', e => {
   if (fmt === 'pdf') exportPDF([{ name: item.name, notes: item.notes }]);
 });
 
-function setBatchBtn(running) {
-  batchStartBtn.disabled = running;
-  batchBtnContent.innerHTML = running
-    ? `<svg class="btn-icon spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>Processing…`
-    : `<svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Start Batch Processing`;
+function setBatchLoading(on) {
+  batchStartBtn.disabled = on;
+  batchBtnLabel.textContent = on ? 'Processing…' : 'Start Processing';
 }
 
-// Batch errors
 function showBatchError(msg) { batchErrorMsg.textContent = msg; batchErrorToast.style.display = 'flex'; }
-function hideBatchError() { batchErrorToast.style.display = 'none'; }
+function hideBatchError()    { batchErrorToast.style.display = 'none'; }
 
-/* ════════════════════════════════════════════════════════════
-   BATCH EXPORT — ALL NOTES
-═══════════════════════════════════════════════════════════════ */
+/* ── Batch export ─────────────────────────────────────── */
 document.getElementById('batch-dl-md').addEventListener('click', () => {
   if (!batchResults.length) return;
-  const combined = buildCombinedMD(batchResults);
-  downloadFile(combined, 'notes-combined.md', 'text/markdown');
+  downloadFile(combinedMD(batchResults), 'younote-batch.md', 'text/markdown');
 });
-
 document.getElementById('batch-dl-txt').addEventListener('click', () => {
   if (!batchResults.length) return;
-  const combined = buildCombinedMD(batchResults);
-  downloadFile(markdownToText(combined), 'notes-combined.txt', 'text/plain');
+  downloadFile(markdownToText(combinedMD(batchResults)), 'younote-batch.txt', 'text/plain');
 });
-
 document.getElementById('batch-dl-pdf').addEventListener('click', () => {
   if (!batchResults.length) return;
   exportPDF(batchResults);
 });
 
-function buildCombinedMD(results) {
+function combinedMD(results) {
   return results.map(r => `# ${r.name}\n\n${r.notes}`).join('\n\n---\n\n');
 }
 
-/* ════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════
    EXPORT UTILITIES
-═══════════════════════════════════════════════════════════════ */
-
-/** Download any text content as a file */
-function downloadFile(content, filename, mimeType) {
-  const blob = new Blob([content], { type: mimeType + ';charset=utf-8' });
+════════════════════════════════════════════════════════ */
+function downloadFile(content, filename, mime) {
+  const blob = new Blob([content], { type: mime + ';charset=utf-8' });
   const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = filename;
-  document.body.appendChild(a); a.click();
-  document.body.removeChild(a); URL.revokeObjectURL(url);
+  const a    = Object.assign(document.createElement('a'), { href: url, download: filename });
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
-/** Convert Markdown to plain text (strip syntax) */
 function markdownToText(md) {
   return md
-    .replace(/^#{1,6}\s+/gm, '')           // headers
-    .replace(/\*\*(.*?)\*\*/g, '$1')        // bold
-    .replace(/\*(.*?)\*/g, '$1')            // italic
-    .replace(/`{1,3}([\s\S]*?)`{1,3}/g, '$1') // code
-    .replace(/^[-*+]\s+/gm, '• ')          // bullets
-    .replace(/^\d+\.\s+/gm, '')            // numbered lists
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
-    .replace(/^>{1,}\s?/gm, '')            // blockquotes
-    .replace(/^---+$/gm, '─'.repeat(40))   // hr
-    .replace(/\n{3,}/g, '\n\n')            // excess newlines
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/`{1,3}([\s\S]*?)`{1,3}/g, '$1')
+    .replace(/^[-*+]\s+/gm, '• ')
+    .replace(/^\d+\.\s+/gm, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^>{1,}\s?/gm, '')
+    .replace(/^---+$/gm, '─'.repeat(40))
+    .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
 
-/** Export as PDF using a print-friendly popup window */
 function exportPDF(results) {
-  const htmlContent = results.map(r => `
-    <section class="note-section">
-      <h1>${escapeHtml(r.name)}</h1>
-      <div class="note-body">${marked.parse(r.notes || '')}</div>
+  const body = results.map(r => `
+    <section class="section">
+      <h1>${escHtml(r.name)}</h1>
+      <div class="body">${marked.parse(r.notes || '')}</div>
     </section>
-  `).join('<div class="page-break"></div>');
+  `).join('<div class="break"></div>');
 
-  const win = window.open('', '_blank', 'width=900,height=700');
-  if (!win) { alert('Please allow popups to export PDF.'); return; }
-
+  const win = window.open('', '_blank', 'width=860,height=700');
+  if (!win) { alert('Allow popups to export PDF.'); return; }
   win.document.write(`<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8"/>
-  <title>NoteFlow Export</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: Georgia, 'Times New Roman', serif; font-size: 13px; line-height: 1.7; color: #1a1a2e; background: #fff; padding: 0; }
-    .note-section { padding: 40px 50px; max-width: 800px; margin: 0 auto; }
-    h1 { font-size: 22px; font-weight: 700; color: #2d2d5e; border-bottom: 2px solid #6c63ff; padding-bottom: 8px; margin-bottom: 20px; font-family: 'Arial', sans-serif; letter-spacing: -0.3px; }
-    h2 { font-size: 16px; font-weight: 700; color: #3d3d7a; margin: 20px 0 8px; font-family: 'Arial', sans-serif; }
-    h3 { font-size: 14px; font-weight: 600; color: #6c63ff; margin: 14px 0 6px; font-family: 'Arial', sans-serif; }
-    p { margin-bottom: 10px; }
-    ul, ol { padding-left: 22px; margin-bottom: 12px; }
-    li { margin-bottom: 5px; }
-    strong { font-weight: 700; }
-    em { font-style: italic; }
-    code { font-family: 'Courier New', monospace; font-size: 12px; background: #f4f3ff; padding: 1px 5px; border-radius: 3px; }
-    pre { background: #f8f8f8; border: 1px solid #e0e0e0; border-radius: 4px; padding: 14px; overflow-x: auto; margin: 12px 0; }
-    pre code { background: none; padding: 0; }
-    blockquote { border-left: 3px solid #6c63ff; padding: 6px 14px; margin: 12px 0; color: #555; background: #fafafa; }
-    hr { border: none; border-top: 1px solid #e0e0e0; margin: 18px 0; }
-    .page-break { page-break-after: always; border-top: 2px dashed #e0e0e0; margin: 30px 50px; }
-    .note-body { margin-top: 8px; }
-    @media print {
-      .page-break { page-break-after: always; border: none; }
-      body { font-size: 12px; }
-    }
-  </style>
-</head>
-<body>
-  ${htmlContent}
-  <script>
-    window.onload = function() {
-      setTimeout(function() { window.print(); }, 400);
-    };
-  <\/script>
-</body>
-</html>`);
+<html lang="en"><head>
+<meta charset="UTF-8"/>
+<title>YouNote Export</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:1.75;color:#111;background:#fff}
+  .section{max-width:720px;margin:0 auto;padding:48px 52px}
+  h1{font-size:20px;font-weight:700;color:#111;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:20px;font-family:Arial,sans-serif;letter-spacing:-0.3px}
+  h2{font-size:15px;font-weight:700;color:#222;margin:20px 0 8px;font-family:Arial,sans-serif}
+  h3{font-size:13px;font-weight:600;color:#333;margin:14px 0 5px;font-family:Arial,sans-serif}
+  p{margin-bottom:9px}
+  ul,ol{padding-left:20px;margin-bottom:11px}
+  li{margin-bottom:4px}
+  strong{font-weight:700}
+  code{font-family:'Courier New',monospace;font-size:11.5px;background:#f4f4f5;padding:1px 5px;border-radius:3px}
+  pre{background:#f8f8f8;border:1px solid #e4e4e7;border-radius:4px;padding:14px;overflow-x:auto;margin:12px 0}
+  pre code{background:none;padding:0}
+  blockquote{border-left:2px solid #a1a1aa;padding:6px 12px;margin:12px 0;color:#52525b}
+  hr{border:none;border-top:1px solid #e4e4e7;margin:18px 0}
+  .break{page-break-after:always;border-top:1px dashed #d4d4d8;margin:0 52px}
+  @media print{.break{border:none}}
+</style>
+</head><body>${body}
+<script>window.onload=()=>setTimeout(()=>window.print(),350);<\/script>
+</body></html>`);
   win.document.close();
 }
 
-function escapeHtml(str) {
-  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+/* ════════════════════════════════════════════════════════
+   HELPERS
+════════════════════════════════════════════════════════ */
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
-
-/* ════════════════════════════════════════════════════════════
-   CLOSE DROPDOWN ON OUTSIDE CLICK
-═══════════════════════════════════════════════════════════════ */
-document.addEventListener('click', e => {
-  if (!e.target.closest('.dropdown-wrap')) {
-    singleDropdown.classList.remove('open');
-  }
-});
