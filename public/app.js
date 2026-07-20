@@ -65,6 +65,17 @@ let batchItems     = [];
 let batchResults   = [];
 let batchRunning   = false;
 
+const ERROR_MESSAGES = {
+  INVALID_YOUTUBE_URL: 'Please enter a valid YouTube video URL.',
+  TRANSCRIPT_UNAVAILABLE: 'This video does not appear to have an available transcript.',
+  TRANSCRIPT_SERVICE_LIMIT_REACHED: 'The transcript service is temporarily at capacity. Please try again later.',
+  TRANSCRIPT_SERVICE_TIMEOUT: 'Transcript retrieval timed out. Please try again.',
+  TRANSCRIPT_SERVICE_ERROR: 'The transcript provider could not process this video. Please try again.',
+  TRANSCRIPT_SERVICE_CONFIGURATION_ERROR: 'The transcript service is temporarily unavailable.',
+  NOTE_GENERATION_FAILED: 'The transcript was found, but the study notes could not be generated.',
+  RATE_LIMIT_EXCEEDED: 'Too many requests. Please wait a few minutes and try again.',
+};
+
 // Inline SVGs for dynamic batch status indicators
 const STATUS_ICON = {
   done:  `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
@@ -111,6 +122,25 @@ function switchTab(tab) {
   panelBatch.style.display  = isSingle ? 'none' : '';
 }
 
+// Custom style toggles
+const styleRadios = document.querySelectorAll('input[name="style"]');
+const customStyleWrap = document.getElementById('custom-style-wrap');
+styleRadios.forEach(r => r.addEventListener('change', () => {
+  if (customStyleWrap) {
+    customStyleWrap.style.display = document.querySelector('input[name="style"]:checked')?.value === 'custom' ? 'block' : 'none';
+    if (r.value === 'custom') document.getElementById('custom-style-input').focus();
+  }
+}));
+
+const batchStyleRadios = document.querySelectorAll('input[name="batch-style"]');
+const batchCustomStyleWrap = document.getElementById('batch-custom-style-wrap');
+batchStyleRadios.forEach(r => r.addEventListener('change', () => {
+  if (batchCustomStyleWrap) {
+    batchCustomStyleWrap.style.display = document.querySelector('input[name="batch-style"]:checked')?.value === 'custom' ? 'block' : 'none';
+    if (r.value === 'custom') document.getElementById('batch-custom-style-input').focus();
+  }
+}));
+
 /* ════════════════════════════════════════════════════════
    SINGLE VIDEO
 ════════════════════════════════════════════════════════ */
@@ -126,7 +156,12 @@ generateBtn.addEventListener('click', handleGenerate);
 async function handleGenerate() {
   const url = urlInput.value.trim();
   if (!url) { showError('Please paste a YouTube URL.'); urlInput.focus(); return; }
-  const style = document.querySelector('input[name="style"]:checked')?.value || 'detailed';
+  let style = document.querySelector('input[name="style"]:checked')?.value || 'detailed';
+  if (style === 'custom') {
+    const customVal = document.getElementById('custom-style-input')?.value.trim();
+    if (customVal) style = customVal;
+    else style = 'detailed';
+  }
 
   hideError();
   setGenerateLoading(true);
@@ -169,7 +204,11 @@ async function callAPI(url, style) {
     throw new Error('Server returned an invalid response. Please try again.');
   }
 
-  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  if (!res.ok) {
+    const code = data.error?.code;
+    const message = ERROR_MESSAGES[code] || data.error?.message || 'Something went wrong. Please try again.';
+    throw new Error(message);
+  }
   return data;
 }
 
@@ -382,7 +421,12 @@ batchStartBtn.addEventListener('click', startBatch);
 
 async function startBatch() {
   if (!batchItems.length || batchRunning) return;
-  const style = document.querySelector('input[name="batch-style"]:checked')?.value || 'detailed';
+  let style = document.querySelector('input[name="batch-style"]:checked')?.value || 'detailed';
+  if (style === 'custom') {
+    const customVal = document.getElementById('batch-custom-style-input')?.value.trim();
+    if (customVal) style = customVal;
+    else style = 'detailed';
+  }
   batchRunning = true;
   batchResults = [];
   hideBatchError();

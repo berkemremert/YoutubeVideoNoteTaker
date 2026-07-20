@@ -1,83 +1,141 @@
 # YouTube Video Note Taker
 
-A powerful, AI-driven web application that automatically extracts transcripts from YouTube videos and generates high-quality, structured notes. It supports advanced features such as automatic fallback to audio transcription (using Groq Whisper) when captions are unavailable, and intelligently bypasses YouTube bot detection.
+YouTube Video Note Taker turns a captioned YouTube video into structured Markdown notes. The Express server retrieves transcripts through SerpApi's YouTube Video Transcript API, normalizes and caches them, and sends transcript text to Fireworks AI. The browser never receives either provider key.
 
-## Features
-
-- **Automated Note Generation**: Converts YouTube videos into structured Markdown notes instantly.
-- **Multiple Output Styles**: Generate detailed notes, executive summaries, bullet-point lists, or study guides based on your needs.
-- **Advanced Transcript Extraction**: Uses `yt-dlp` to fetch accurate subtitle tracks natively.
-- **Audio Transcription Fallback**: If a video lacks captions, the app automatically downloads the audio and transcribes it using the Groq Whisper API.
-- **Bot Detection Bypass**: Implements Android, iOS, and Web client spoofing, with an optional YouTube cookies fallback to reliably bypass datacenter IP bans.
-- **Reasoning Model Support**: Optimized for advanced AI models (e.g., DeepSeek) with built-in filters to strip raw "chain of thought" output from the final notes.
+The application does not download audio or video, use cookies, scrape YouTube, or call YouTube caption endpoints directly.
 
 ## Architecture
 
-- **Backend**: Node.js and Express.js
-- **Transcript Extraction**: `youtube-dl-exec` (a wrapper around `yt-dlp`)
-- **AI Processing**: 
-  - **Text Generation**: Fireworks AI API (supports models like DeepSeek V4 Pro, GPT OSS, etc.)
-  - **Audio Transcription**: Groq API (Whisper-large-v3)
-- **Frontend**: Vanilla HTML/CSS/JS (served statically via Express)
+- Frontend: vanilla HTML, CSS, and JavaScript in `public/`
+- API: Node.js 20+ and Express, using CommonJS modules
+- Transcript provider: SerpApi `youtube_video_transcript`
+- Note provider: Fireworks AI through its OpenAI-compatible API
+- Cache: bounded in-memory TTL cache with concurrent request deduplication
+- Tests: built-in Node.js test runner with mocked upstream requests
 
-## Prerequisites
+The in-memory cache is intentionally replaceable. It reduces repeated calls within one Render process but is cleared by restarts and is not shared between multiple instances.
 
-- Node.js (v18 or higher recommended)
-- A Fireworks AI API Key
-- A Groq API Key (required for the audio transcription fallback)
+## Local setup
 
-## Installation
-
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/berkemremert/YoutubeVideoNoteTaker.git
-   cd YoutubeVideoNoteTaker
-   ```
-
+1. Install Node.js 20 or newer.
 2. Install dependencies:
+
    ```bash
    npm install
    ```
 
-3. Configure Environment Variables:
-   Create a `.env` file in the root directory and add your API keys:
-   ```env
-   FIREWORKS_API_KEY=your_fireworks_api_key_here
-   GROQ_API_KEY=your_groq_api_key_here
+3. Copy `.env.example` to `.env` and add keys:
+
+   ```dotenv
    PORT=3000
+   SERPAPI_API_KEY=your_server_side_serpapi_key
+   FIREWORKS_API_KEY=your_fireworks_key
    ```
 
-## Usage
+Create a SerpApi account and obtain an API key for the YouTube Video Transcript API. Create a Fireworks AI account and obtain an API key for note generation. Never put either value in `public/`, frontend JavaScript, screenshots, or committed files.
 
-### Running Locally
+4. Start the app:
 
-Start the development server using nodemon:
-```bash
-npm run dev
+   ```bash
+   npm run dev
+   ```
+
+Open `http://localhost:3000`.
+
+## Configuration
+
+| Variable | Default | Purpose |
+|---|---:|---|
+| `PORT` | `3000` | HTTP port |
+| `SERPAPI_API_KEY` | none | Required in production for transcripts |
+| `SERPAPI_TIMEOUT_MS` | `20000` | Per-attempt provider timeout |
+| `SERPAPI_MAX_RETRIES` | `1` | Retries for transient failures only |
+| `SERPAPI_CACHE_TTL_MS` | `86400000` | Successful transcript cache lifetime |
+| `SERPAPI_CACHE_MAX_ENTRIES` | `500` | In-memory cache bound |
+| `DEFAULT_TRANSCRIPT_LANGUAGE` | `en` | Deterministic default transcript language |
+| `TRANSCRIPT_REQUEST_LIMIT_WINDOW_MS` | `900000` | Rate-limit window |
+| `TRANSCRIPT_REQUEST_LIMIT_MAX` | `10` | Requests per IP per window |
+| `FIREWORKS_API_KEY` | none | Required in production for note generation |
+
+Invalid numeric configuration prevents startup. Production also refuses to start without both provider keys.
+
+## API
+
+### Generate notes
+
+`POST /api/generate-notes`
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=2QmuhAvJuLE",
+  "languageCode": "en",
+  "style": "detailed",
+  "model": "accounts/fireworks/models/deepseek-v4-pro",
+  "effort": "standard"
+}
 ```
-Or start it normally:
-```bash
-npm start
+
+The `languageCode` is optional. URLs using watch, `youtu.be`, Shorts, embed, and live formats are accepted, as are raw 11-character video IDs.
+
+Successful response:
+
+```json
+{
+  "success": true,
+  "videoId": "2QmuhAvJuLE",
+  "videoUrl": "https://www.youtube.com/watch?v=2QmuhAvJuLE",
+  "wordCount": 1532,
+  "notes": "## Key Takeaways\n...",
+  "transcript": {
+    "languageCode": "en",
+    "requestedLanguageCode": "en",
+    "type": "asr",
+    "segmentCount": 245,
+    "chapters": []
+  }
+}
 ```
-Navigate to `http://localhost:3000` in your browser.
 
-### Using the Application
+Error response:
 
-1. Paste a valid YouTube URL into the input field.
-2. Select your desired note style (Detailed, Summary, Bullets, Study).
-3. Select your AI model and effort level.
-4. Click "Generate Notes" and wait for the AI to process the video.
+```json
+{
+  "success": false,
+  "error": {
+    "code": "TRANSCRIPT_UNAVAILABLE",
+    "message": "No transcript is available for this video.",
+    "requestId": "..."
+  }
+}
+```
 
-## Advanced Configuration: YouTube Bot Bypass
+Common error codes include `INVALID_YOUTUBE_URL`, `TRANSCRIPT_UNAVAILABLE`, `TRANSCRIPT_SERVICE_CONFIGURATION_ERROR`, `TRANSCRIPT_SERVICE_LIMIT_REACHED`, `TRANSCRIPT_SERVICE_TIMEOUT`, `TRANSCRIPT_SERVICE_ERROR`, `NOTE_GENERATION_FAILED`, and `RATE_LIMIT_EXCEEDED`.
 
-If you deploy this application to a cloud provider (e.g., Render, AWS, Heroku), YouTube may block requests with a "Sign in to confirm you are not a bot" error. The application includes a fallback mechanism:
+### Health check
 
-1. Export your YouTube cookies using a browser extension (e.g., "Get cookies.txt LOCALLY").
-2. Copy the entire content of the exported `.txt` file.
-3. Add a new environment variable named `YOUTUBE_COOKIES` to your deployment environment and paste the cookies as the value.
+`GET /health` reports process health and safe provider-configuration booleans. It does not call SerpApi or Fireworks.
 
-The server will automatically detect this variable, write it to a secure temporary file, and use it for all subsequent extractions, completely bypassing the block.
+## Tests
 
-## License
+```bash
+npm test
+```
 
-This project is open-source and available under the MIT License.
+The default suite makes no live SerpApi, Fireworks, or YouTube calls. Fixtures cover URL parsing, language fallback, response normalization, empty transcripts, provider authentication/quota errors, retry policy, caching, concurrent deduplication, note generation, and route contracts.
+
+## Render deployment
+
+- Build command: `npm ci`
+- Start command: `npm start`
+- Runtime: Node.js 20 or newer
+- Required secrets: `SERPAPI_API_KEY`, `FIREWORKS_API_KEY`
+- Recommended: configure the timeout, retry, cache, default-language, and rate-limit variables listed above
+- Health-check path: `/health`
+
+Configure secrets only in the Render dashboard. Do not use a local file as a production cache; Render instances can restart or scale horizontally.
+
+SerpApi allowances and pricing are limited and can change. Review the current SerpApi plan before a production launch. This app conserves searches with input validation, deterministic parameters, a 24-hour application cache, request deduplication, and per-IP rate limiting; SerpApi's own cache remains enabled because the app does not send `no_cache=true`.
+
+## Security history
+
+An `.env` file existed in the repository's Git history. Any keys that were stored in that file should be rotated. `.env` and media files are now ignored, while `.env.example` contains placeholders only.

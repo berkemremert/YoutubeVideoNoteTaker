@@ -1,3 +1,15 @@
 node_modules/
+
 .env
+.env.*
+!.env.example
+
 .DS_Store
+*.mp3
+*.m4a
+*.wav
+*.webm
+*.mp4
+
+coverage/
+npm-debug.log*

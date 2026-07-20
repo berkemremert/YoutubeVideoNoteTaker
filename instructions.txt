@@ -1,0 +1,1722 @@
+# YouTube Video Note Taker: SerpApi Migration and Refactoring Guide
+
+## 1. Role and objective
+
+You are working on an existing Node.js and Express project named `YoutubeVideoNoteTaker`.
+
+The application currently accepts a YouTube URL, retrieves the video transcript, sends the transcript to an AI model, and returns generated study notes.
+
+The current transcript implementation relies on direct YouTube access through experimental tools such as `yt-dlp`, audio downloads, caption scraping, or YouTube transcript libraries. These methods are unreliable on Render because YouTube blocks requests originating from shared datacenter IP ranges.
+
+Your task is to replace the existing YouTube transcript acquisition system with the SerpApi YouTube Video Transcript API.
+
+The finished application must:
+
+1. Never download YouTube audio or video.
+2. Never use browser cookies.
+3. Never call YouTube directly from the server for transcript extraction.
+4. Never expose the SerpApi API key to the browser.
+5. Preserve the existing AI note-generation behavior.
+6. Preserve the existing frontend unless a frontend change is required for correct error handling.
+7. Remove or archive obsolete YouTube extraction experiments.
+8. Include automated tests for the new transcript workflow.
+9. Remain deployable on Render.
+10. Use the SerpApi free allowance efficiently through caching, request deduplication, and input validation.
+
+Do not rewrite the entire application unnecessarily. Inspect the existing implementation first and refactor incrementally.
+
+---
+
+# 2. Current project tree
+
+The current project contains:
+
+```text
+YoutubeVideoNoteTaker/
+├── .env
+├── .git/
+├── .gitattributes
+├── .gitignore
+├── 2QmuhAvJuLE.m4a
+├── README.md
+├── debug-ytdl.js
+├── dummy.mp3
+├── node_modules/
+├── package-lock.json
+├── package.json
+├── public/
+│   ├── app.js
+│   ├── icon.png
+│   ├── index.html
+│   └── style.css
+├── server.js
+├── test-piped.js
+└── tests/
+    ├── test-audio.js
+    ├── test-cap-fetch.js
+    ├── test-debug.js
+    ├── test-groq.js
+    ├── test-json3.js
+    ├── test-lang.js
+    ├── test-whisper.js
+    ├── test-yt.js
+    ├── test-ytdl-content.js
+    └── test-ytdl.js
+```
+
+Many files appear to be experiments related to downloading audio, obtaining YouTube caption files, calling alternate YouTube frontends, or running Whisper. These are likely obsolete after the SerpApi migration.
+
+Do not delete files before inspecting them. Some may contain reusable functions such as YouTube URL parsing, AI integration, transcript formatting, or frontend API contracts.
+
+---
+
+# 3. Mandatory initial audit
+
+Before changing code, inspect at least:
+
+```text
+package.json
+server.js
+public/app.js
+public/index.html
+README.md
+.gitignore
+.env
+tests/test-groq.js
+tests/test-lang.js
+```
+
+Also inspect every file associated with transcript extraction:
+
+```text
+debug-ytdl.js
+test-piped.js
+tests/test-audio.js
+tests/test-cap-fetch.js
+tests/test-debug.js
+tests/test-json3.js
+tests/test-whisper.js
+tests/test-yt.js
+tests/test-ytdl-content.js
+tests/test-ytdl.js
+```
+
+Determine and document:
+
+1. Whether the project uses CommonJS or ES modules.
+2. The active Node.js version or `engines` requirement.
+3. The existing public API endpoint called by `public/app.js`.
+4. The existing request body format.
+5. The existing response body format.
+6. Which AI provider generates the notes.
+7. Which environment variables are currently required.
+8. Which packages are used only for YouTube downloading.
+9. Whether `.env` has ever been committed.
+10. Whether the application currently has centralized error handling.
+11. Whether tests use a test runner or are only standalone scripts.
+12. Whether the server already has request limits, timeouts, CORS settings, or security middleware.
+
+Do not change the module system merely for stylistic reasons. Preserve CommonJS or ESM according to the existing project.
+
+Do not change the AI provider unless the current integration is broken.
+
+---
+
+# 4. Security audit before implementation
+
+Run:
+
+```bash
+git ls-files .env
+git log --all -- .env
+```
+
+If `.env` is tracked or was previously committed:
+
+1. Remove it from version control.
+2. Ensure `.env` is covered by `.gitignore`.
+3. Add `.env.example` without real secrets.
+4. Tell the project owner that exposed API keys must be rotated.
+5. Never print existing secret values in logs, commits, documentation, or responses.
+
+The SerpApi key must exist only on the server.
+
+The browser must never call SerpApi directly. Doing so would expose the private key through browser source code, request inspection, or network logs.
+
+Do not place `SERPAPI_API_KEY` in:
+
+```text
+public/app.js
+public/index.html
+public/style.css
+client-visible JSON
+error responses
+console output
+Git history
+test fixtures
+screenshots
+README examples containing real values
+```
+
+---
+
+# 5. SerpApi API behavior
+
+Use the YouTube Video Transcript engine:
+
+```text
+engine=youtube_video_transcript
+```
+
+The required video identifier parameter is:
+
+```text
+v=<youtube-video-id>
+```
+
+Supported optional parameters relevant to this project include:
+
+```text
+language_code=en
+type=asr
+title=<specific-transcript-title>
+no_cache=false
+```
+
+Do not set `no_cache=true` in the normal application flow.
+
+SerpApi serves cached results only when all request parameters match. Its cache expires after one hour, and cached searches do not count against the monthly quota. Therefore, parameter values must be normalized and consistent. Do not randomly omit `language_code` on one request and include it on another for the same logical request.
+
+The response can include:
+
+```json
+{
+  "search_metadata": {
+    "id": "...",
+    "status": "Success"
+  },
+  "search_parameters": {
+    "engine": "youtube_video_transcript",
+    "v": "VIDEO_ID",
+    "language_code": "en"
+  },
+  "transcript": [
+    {
+      "start_ms": 240,
+      "end_ms": 7040,
+      "snippet": "Transcript text",
+      "start_time_text": "0:00"
+    }
+  ],
+  "chapters": [
+    {
+      "chapter": "Introduction",
+      "start_ms": 0,
+      "end_ms": 214000
+    }
+  ],
+  "available_transcripts": [
+    {
+      "language_name": "English",
+      "language_code": "en",
+      "type": "asr",
+      "selected": true,
+      "serpapi_link": "..."
+    }
+  ]
+}
+```
+
+The official API returns timestamped transcript snippets, optional chapters, and available transcript tracks. When the requested language is unavailable, SerpApi documents that it may select the first available transcript language.
+
+Do not assume that every successful HTTP response contains a non-empty transcript. Validate both the HTTP status and the JSON body.
+
+---
+
+# 6. Recommended target architecture
+
+Refactor the application toward the following structure:
+
+```text
+YoutubeVideoNoteTaker/
+├── .env
+├── .env.example
+├── .gitignore
+├── README.md
+├── package.json
+├── package-lock.json
+├── server.js
+├── src/
+│   ├── config/
+│   │   └── env.js
+│   ├── controllers/
+│   │   └── notesController.js
+│   ├── errors/
+│   │   └── AppError.js
+│   ├── middleware/
+│   │   ├── errorHandler.js
+│   │   └── requestId.js
+│   ├── routes/
+│   │   └── notesRoutes.js
+│   ├── services/
+│   │   ├── serpApiTranscriptService.js
+│   │   └── noteGenerationService.js
+│   ├── cache/
+│   │   └── transcriptCache.js
+│   └── utils/
+│       ├── youtubeUrl.js
+│       └── transcript.js
+├── public/
+│   ├── app.js
+│   ├── icon.png
+│   ├── index.html
+│   └── style.css
+└── tests/
+    ├── fixtures/
+    │   ├── serpapi-success.json
+    │   ├── serpapi-no-transcript.json
+    │   ├── serpapi-error.json
+    │   └── serpapi-multiple-languages.json
+    ├── youtubeUrl.test.js
+    ├── transcriptService.test.js
+    ├── transcriptCache.test.js
+    └── notesRoute.test.js
+```
+
+This is a target, not permission to break the existing application.
+
+If `server.js` currently contains all logic, move code in small stages:
+
+1. Extract YouTube URL parsing.
+2. Extract SerpApi access.
+3. Extract transcript normalization.
+4. Extract AI note generation.
+5. Add centralized errors.
+6. Update tests.
+7. Remove old extraction code.
+
+Keep `server.js` as the application entry point unless there is a strong reason to introduce a separate `app.js`.
+
+---
+
+# 7. Environment configuration
+
+Add the following variables to `.env.example`:
+
+```dotenv
+PORT=3000
+
+SERPAPI_API_KEY=
+SERPAPI_TIMEOUT_MS=20000
+SERPAPI_MAX_RETRIES=1
+SERPAPI_CACHE_TTL_MS=86400000
+DEFAULT_TRANSCRIPT_LANGUAGE=en
+
+TRANSCRIPT_REQUEST_LIMIT_WINDOW_MS=900000
+TRANSCRIPT_REQUEST_LIMIT_MAX=10
+
+# Preserve the existing AI provider variables.
+GROQ_API_KEY=
+```
+
+Only include `GROQ_API_KEY` when Groq is actually the current provider. Preserve whichever AI environment variables the existing project uses.
+
+Create a configuration module that:
+
+1. Loads environment variables.
+2. Validates mandatory variables once at application startup.
+3. Converts numeric values safely.
+4. Rejects invalid timeout, retry, and cache values.
+5. Never returns the complete environment object to API clients.
+6. Prevents the application from starting when `SERPAPI_API_KEY` is missing in production.
+7. Allows mocked keys during tests.
+
+Example configuration contract:
+
+```js
+{
+  port: 3000,
+  serpApi: {
+    apiKey: "...",
+    timeoutMs: 20000,
+    maxRetries: 1,
+    cacheTtlMs: 86400000,
+    defaultLanguage: "en"
+  }
+}
+```
+
+Do not scatter `process.env` access across controllers and service files.
+
+---
+
+# 8. YouTube URL validation
+
+Create a reusable utility that accepts either:
+
+```text
+A complete YouTube URL
+A raw YouTube video ID
+```
+
+Support at least:
+
+```text
+https://www.youtube.com/watch?v=VIDEO_ID
+https://youtube.com/watch?v=VIDEO_ID
+https://youtu.be/VIDEO_ID
+https://www.youtube.com/shorts/VIDEO_ID
+https://www.youtube.com/embed/VIDEO_ID
+https://www.youtube.com/live/VIDEO_ID
+VIDEO_ID
+```
+
+Implementation requirements:
+
+1. Use the built-in `URL` parser whenever input is a URL.
+2. Do not rely only on one large regular expression.
+3. Remove irrelevant query parameters.
+4. Validate the final candidate video ID.
+5. Reject playlists without a usable video ID.
+6. Reject empty input.
+7. Reject unsupported hosts.
+8. Reject malformed identifiers.
+9. Do not make a network request during validation.
+10. Return only the normalized video ID.
+
+Expected contract:
+
+```js
+extractYouTubeVideoId(input)
+```
+
+Success:
+
+```js
+"2QmuhAvJuLE"
+```
+
+Failure:
+
+```js
+throw new AppError(
+  "INVALID_YOUTUBE_URL",
+  "Enter a valid YouTube video URL.",
+  400
+);
+```
+
+Do not send SerpApi requests for invalid input. Input validation protects the limited free quota.
+
+---
+
+# 9. SerpApi transcript service
+
+Create:
+
+```text
+src/services/serpApiTranscriptService.js
+```
+
+The service must be the only part of the codebase that knows SerpApi request details.
+
+Preferred public function:
+
+```js
+getYouTubeTranscript({
+  videoId,
+  languageCode,
+  transcriptType
+})
+```
+
+The controller must not construct SerpApi URLs.
+
+## 9.1 Transport choice
+
+First inspect the Node.js runtime.
+
+When the project uses a Node.js version with stable built-in `fetch`, use native `fetch` and `AbortController` or `AbortSignal.timeout`.
+
+Otherwise, use the official `serpapi` JavaScript package rather than an abandoned third-party wrapper. SerpApi provides an official JavaScript SDK with Promise and async/await support.
+
+Avoid installing Axios solely for one request unless Axios is already part of the project.
+
+## 9.2 Request construction
+
+The server-side request should be equivalent to:
+
+```js
+const endpoint = new URL("https://serpapi.com/search.json");
+
+endpoint.searchParams.set("engine", "youtube_video_transcript");
+endpoint.searchParams.set("v", videoId);
+endpoint.searchParams.set("language_code", languageCode);
+endpoint.searchParams.set("api_key", config.serpApi.apiKey);
+```
+
+Do not include `type=asr` by default unless the user explicitly selected an auto-generated track or the existing product requires ASR transcripts specifically.
+
+Do not include:
+
+```text
+no_cache=true
+async=true
+zero_trace=true
+```
+
+in the normal free-plan implementation.
+
+Use deterministic parameters so repeat requests can benefit from SerpApi caching.
+
+## 9.3 Request timeout
+
+Every upstream request must have a timeout.
+
+Default:
+
+```text
+20 seconds
+```
+
+The timeout must be configurable through `SERPAPI_TIMEOUT_MS`.
+
+A timed-out request must not continue consuming server resources.
+
+## 9.4 Retry policy
+
+Retry only failures that may succeed on a second attempt:
+
+```text
+Network connection reset
+Request timeout
+HTTP 500
+HTTP 503
+Transient SerpApi processing error
+```
+
+Retry at most once by default.
+
+Use a small exponential delay with jitter.
+
+Do not retry:
+
+```text
+400 bad request
+401 invalid API key
+403 forbidden
+404 invalid resource
+429 quota or throughput exhausted
+Transcript unavailable
+Invalid YouTube input
+```
+
+Blindly retrying `429` wastes time and may worsen rate limiting.
+
+## 9.5 Response validation
+
+Validate:
+
+```js
+response.ok
+body.search_metadata?.status
+body.error
+Array.isArray(body.transcript)
+```
+
+A usable result requires a non-empty transcript array containing at least one non-empty snippet.
+
+Do not treat the following as success:
+
+```json
+{
+  "search_metadata": {
+    "status": "Success"
+  },
+  "transcript": []
+}
+```
+
+SerpApi documents that a search can have `Success` status even when its result data is empty, so application-level validation remains necessary.
+
+---
+
+# 10. Normalized transcript model
+
+Do not pass the raw SerpApi response throughout the application.
+
+Normalize it immediately into an internal provider-independent object:
+
+```js
+{
+  provider: "serpapi",
+  videoId: "2QmuhAvJuLE",
+  requestedLanguageCode: "en",
+  resolvedLanguageCode: "en",
+  transcriptType: "asr",
+  transcriptTitle: null,
+  segments: [
+    {
+      startMs: 240,
+      endMs: 7040,
+      startTimeText: "0:00",
+      text: "Transcript text"
+    }
+  ],
+  chapters: [
+    {
+      title: "Introduction",
+      startMs: 0,
+      endMs: 214000
+    }
+  ],
+  availableTranscripts: [
+    {
+      title: null,
+      languageName: "English",
+      languageCode: "en",
+      type: "asr",
+      selected: true
+    }
+  ],
+  fullText: "Transcript text",
+  fetchedAt: "ISO_DATE",
+  cacheHit: false
+}
+```
+
+Normalization rules:
+
+1. Convert all timestamps to finite numbers.
+2. Rename `snippet` to `text`.
+3. Trim each text segment.
+4. Remove segments with empty text.
+5. Preserve segment order.
+6. Do not remove legitimate repeated phrases automatically.
+7. Join `fullText` with a sensible separator.
+8. Do not include `serpapi_link` in client responses.
+9. Do not expose SerpApi search archive links.
+10. Do not expose the API key.
+11. Do not store the complete raw response unless debugging is explicitly enabled.
+12. Do not log transcript contents in production.
+
+Determine the resolved language from the selected entry in `available_transcripts` when available. Do not claim that the requested language was returned when SerpApi selected another language.
+
+---
+
+# 11. Transcript text preparation for AI notes
+
+The AI note-generation service should receive normalized transcript data, not the raw SerpApi response.
+
+Preferred input:
+
+```js
+generateStudyNotes({
+  videoId,
+  transcriptText,
+  segments,
+  chapters,
+  languageCode
+})
+```
+
+Preserve the current AI prompt unless it is clearly malformed.
+
+When creating text for the AI:
+
+1. Preserve paragraph or segment boundaries.
+2. Optionally include timestamps when they improve note navigation.
+3. Avoid JSON-stringifying the entire SerpApi response into the prompt.
+4. Exclude search metadata and available track URLs.
+5. Measure or estimate input size before calling the AI model.
+6. Preserve existing chunking if the application already supports long videos.
+7. Add chunking only when the current implementation can exceed the model context limit.
+8. Do not truncate the end of the transcript silently.
+9. If chunking is necessary, summarize chunks and then synthesize a final note set.
+10. Keep the final note format compatible with the frontend.
+
+A suitable transcript representation is:
+
+```text
+[00:00] First transcript segment.
+[00:07] Second transcript segment.
+[00:13] Third transcript segment.
+```
+
+When timestamps consume too many tokens, use plain joined text for summarization and retain timestamped segments separately for the UI.
+
+---
+
+# 12. Cache design
+
+The free plan is limited, so caching is mandatory.
+
+Implement a cache abstraction rather than embedding a raw `Map` inside the SerpApi service.
+
+Suggested interface:
+
+```js
+getTranscriptCache(key)
+setTranscriptCache(key, value, ttlMs)
+deleteTranscriptCache(key)
+```
+
+Cache key:
+
+```text
+transcript:<videoId>:<normalizedLanguageCode>:<type-or-default>:<title-or-default>
+```
+
+Example:
+
+```text
+transcript:2QmuhAvJuLE:en:default:default
+```
+
+## 12.1 Initial implementation
+
+A process-memory TTL cache is acceptable for the first implementation.
+
+It must:
+
+1. Expire entries.
+2. Prevent unlimited growth.
+3. Have a maximum number of entries.
+4. Return copies or immutable data where practical.
+5. Never include the API key.
+6. Never cache errors permanently.
+
+Recommended transcript cache TTL:
+
+```text
+24 hours
+```
+
+Make it configurable.
+
+## 12.2 Render limitation
+
+Do not use local files as the production cache.
+
+Render instances may restart, redeploy, or run more than one process. A local JSON cache is not a reliable shared production cache.
+
+Structure the cache module so it can later be replaced with Redis, Render Key Value, Upstash, or a database without changing controllers or the SerpApi service.
+
+## 12.3 Negative caching
+
+Short-term negative caching is allowed for clearly unavailable transcripts.
+
+Example:
+
+```text
+TRANSCRIPT_UNAVAILABLE: cache for 5–15 minutes
+```
+
+Do not cache:
+
+```text
+Invalid API key
+Quota exhausted
+Network timeout
+SerpApi server failure
+Unexpected malformed response
+```
+
+for long periods.
+
+---
+
+# 13. Concurrent request deduplication
+
+Caching alone does not prevent simultaneous duplicate requests.
+
+If five users request the same uncached video at the same time, the application must send one SerpApi request, not five.
+
+Implement an in-flight request map:
+
+```js
+const inFlight = new Map();
+```
+
+Use the same normalized cache key.
+
+Algorithm:
+
+```text
+1. Check transcript cache.
+2. If cached, return cached result.
+3. Check whether the same key has an in-flight Promise.
+4. If present, await the existing Promise.
+5. Otherwise create the SerpApi Promise.
+6. Store it in the in-flight map.
+7. Cache the successful normalized result.
+8. Remove the Promise from the map in a finally block.
+```
+
+Always remove failed and successful requests from the in-flight map.
+
+Never leave a rejected Promise permanently stored.
+
+---
+
+# 14. API endpoint integration
+
+Inspect the existing endpoint used by `public/app.js`.
+
+Do not arbitrarily change it when the frontend already depends on it.
+
+For example, if the frontend currently sends:
+
+```http
+POST /api/generate-notes
+Content-Type: application/json
+```
+
+with:
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=2QmuhAvJuLE"
+}
+```
+
+preserve that request unless there is a strong reason to migrate it.
+
+The updated controller flow should be:
+
+```text
+Validate body
+↓
+Extract normalized video ID
+↓
+Normalize requested language
+↓
+Check transcript cache
+↓
+Fetch transcript through SerpApi when needed
+↓
+Normalize transcript
+↓
+Generate notes using existing AI service
+↓
+Return the existing frontend-compatible response
+```
+
+An extended request may support:
+
+```json
+{
+  "url": "https://www.youtube.com/watch?v=2QmuhAvJuLE",
+  "languageCode": "en"
+}
+```
+
+The language is optional. Use `DEFAULT_TRANSCRIPT_LANGUAGE` when omitted.
+
+Do not let clients submit arbitrary SerpApi parameters such as:
+
+```text
+api_key
+engine
+no_cache
+async
+zero_trace
+serpapi_link
+```
+
+Allow only explicitly supported application fields.
+
+---
+
+# 15. Recommended response contract
+
+Preserve the current contract when possible.
+
+A clean new contract could be:
+
+```json
+{
+  "success": true,
+  "data": {
+    "videoId": "2QmuhAvJuLE",
+    "notes": "Generated study notes",
+    "transcript": {
+      "languageCode": "en",
+      "type": "asr",
+      "segmentCount": 245,
+      "chapters": []
+    }
+  }
+}
+```
+
+Do not return the entire transcript to the browser unless the frontend displays or exports it.
+
+When the UI needs the transcript, return normalized segments rather than the raw SerpApi object.
+
+Do not return:
+
+```text
+SerpApi API key
+SerpApi request URL containing the key
+Raw upstream stack traces
+Internal cache keys
+Internal file paths
+Search archive URLs
+Complete environment variables
+```
+
+---
+
+# 16. Error taxonomy
+
+Create a reusable `AppError` type with:
+
+```js
+{
+  code,
+  message,
+  statusCode,
+  retryable,
+  cause
+}
+```
+
+Map errors as follows.
+
+## Invalid user input
+
+```text
+Code: INVALID_YOUTUBE_URL
+HTTP: 400
+Message: Enter a valid YouTube video URL.
+Retryable: false
+```
+
+## Transcript not available
+
+```text
+Code: TRANSCRIPT_UNAVAILABLE
+HTTP: 422
+Message: No transcript is available for this video.
+Retryable: false
+```
+
+The UI may suggest choosing another video or language.
+
+## SerpApi key missing or invalid
+
+```text
+Code: TRANSCRIPT_SERVICE_CONFIGURATION_ERROR
+HTTP: 503
+Message: The transcript service is temporarily unavailable.
+Retryable: false
+```
+
+Never tell the browser the API key is invalid.
+
+Log the internal cause securely.
+
+## SerpApi quota exhausted or hourly throughput reached
+
+```text
+Code: TRANSCRIPT_SERVICE_LIMIT_REACHED
+HTTP: 503
+Message: The transcript service has reached its usage limit. Please try again later.
+Retryable: true
+```
+
+SerpApi uses HTTP `429` for both hourly throughput limits and exhausted search allowances.
+
+## SerpApi timeout
+
+```text
+Code: TRANSCRIPT_SERVICE_TIMEOUT
+HTTP: 504
+Message: Transcript retrieval took too long. Please try again.
+Retryable: true
+```
+
+## SerpApi server error
+
+```text
+Code: TRANSCRIPT_SERVICE_ERROR
+HTTP: 502
+Message: The transcript provider could not process this video.
+Retryable: true
+```
+
+## AI generation failure
+
+Keep this separate from transcript retrieval:
+
+```text
+Code: NOTE_GENERATION_FAILED
+HTTP: 502
+Message: The transcript was retrieved, but the notes could not be generated.
+Retryable: true
+```
+
+This distinction is essential for debugging.
+
+---
+
+# 17. Rate limiting and free-quota protection
+
+Add server-side rate limiting to the note-generation endpoint.
+
+Make limits configurable through environment variables.
+
+Initial default:
+
+```text
+10 requests per 15 minutes per IP
+```
+
+Adjust after observing real usage.
+
+Rate limiting must occur after inexpensive structural checks where appropriate but before costly external calls.
+
+Also implement:
+
+1. Cache lookup before calling SerpApi.
+2. Concurrent request deduplication.
+3. Maximum request body size.
+4. Maximum URL/input length.
+5. Rejection of unsupported fields.
+6. Optional daily application budget.
+7. Logging of cache hit rates.
+8. No automatic repeated transcript-language probing.
+
+Do not perform multiple SerpApi requests merely to discover every language track.
+
+Make one normalized request first. Only perform another request when the user explicitly chooses a different available transcript.
+
+The free plan currently allows 250 searches per month and 50 requests of throughput per hour. Only successful searches count toward the monthly allowance; cached, errored, and failed searches are not counted according to the current pricing documentation.
+
+---
+
+# 18. Optional quota monitoring
+
+SerpApi provides an Account API that can report fields including monthly usage, searches left, current-hour usage, and hourly rate limits. Calls to the Account API are documented as free of charge.
+
+This is optional for the initial migration.
+
+If implemented, create a protected internal endpoint such as:
+
+```text
+GET /api/internal/transcript-provider-status
+```
+
+Do not make it publicly accessible without authorization.
+
+Return only safe operational data:
+
+```json
+{
+  "provider": "serpapi",
+  "configured": true,
+  "searchesLeft": 123,
+  "hourlyUsage": 4,
+  "hourlyLimit": 50
+}
+```
+
+Never return:
+
+```text
+api_key
+account email
+account ID
+billing details
+complete raw Account API response
+```
+
+Cache account-status checks for several minutes. Do not query them for every transcript request.
+
+---
+
+# 19. Logging and observability
+
+Add structured logs for transcript operations.
+
+Log:
+
+```text
+requestId
+videoId
+requestedLanguageCode
+resolvedLanguageCode
+cacheHit
+inFlightDeduplicated
+upstreamStatus
+SerpApi search status
+segmentCount
+chapterCount
+durationMs
+retryCount
+application error code
+```
+
+Do not log:
+
+```text
+SERPAPI_API_KEY
+complete SerpApi URL
+complete request headers
+full transcript
+AI provider key
+complete AI prompt
+user cookies
+environment object
+```
+
+Sanitize upstream error messages before logging them.
+
+Generate or accept a request ID so a frontend failure can be correlated with server logs.
+
+Suggested public error response:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "TRANSCRIPT_UNAVAILABLE",
+    "message": "No transcript is available for this video.",
+    "requestId": "..."
+  }
+}
+```
+
+---
+
+# 20. Frontend changes
+
+Inspect `public/app.js` before editing.
+
+Preserve the existing page layout and user flow.
+
+Update the frontend only as needed to:
+
+1. Send an optional transcript language.
+2. Prevent duplicate submissions while a request is running.
+3. Display actionable error messages.
+4. Restore the submit button after failures.
+5. Distinguish invalid URL, unavailable transcript, provider limit, and note-generation errors.
+6. Avoid displaying raw upstream error text.
+7. Avoid logging server responses containing sensitive data.
+8. Abort obsolete client requests when the user starts a new one, when appropriate.
+
+Suggested messages:
+
+```text
+INVALID_YOUTUBE_URL
+“Please enter a valid YouTube video URL.”
+
+TRANSCRIPT_UNAVAILABLE
+“This video does not appear to have an available transcript.”
+
+TRANSCRIPT_SERVICE_LIMIT_REACHED
+“The transcript service is temporarily at capacity. Please try again later.”
+
+TRANSCRIPT_SERVICE_TIMEOUT
+“Transcript retrieval timed out. Please try again.”
+
+NOTE_GENERATION_FAILED
+“The transcript was found, but the study notes could not be generated.”
+```
+
+Do not expose the word “API key” to end users.
+
+---
+
+# 21. Legacy file cleanup
+
+The following are likely obsolete:
+
+```text
+2QmuhAvJuLE.m4a
+dummy.mp3
+debug-ytdl.js
+test-piped.js
+tests/test-audio.js
+tests/test-cap-fetch.js
+tests/test-debug.js
+tests/test-json3.js
+tests/test-whisper.js
+tests/test-yt.js
+tests/test-ytdl-content.js
+tests/test-ytdl.js
+```
+
+Use this cleanup procedure:
+
+1. Inspect each file.
+2. Identify reusable logic.
+3. Move reusable URL parsing into `src/utils/youtubeUrl.js`.
+4. Preserve valid AI tests from `test-groq.js`.
+5. Preserve language-selection expectations from `test-lang.js`.
+6. Replace extraction experiments with deterministic SerpApi unit tests.
+7. Delete downloaded `.mp3` and `.m4a` files from the repository.
+8. Add media patterns to `.gitignore`.
+9. Remove obsolete scripts from `package.json`.
+10. Remove packages used only for direct YouTube access.
+11. Run `npm install` or the appropriate uninstall commands to update `package-lock.json`.
+12. Search the repository to ensure no obsolete imports remain.
+13. Run the full test suite.
+14. Only then permanently remove the obsolete files.
+
+Add patterns similar to:
+
+```gitignore
+.env
+.env.*
+!.env.example
+
+node_modules/
+
+*.mp3
+*.m4a
+*.wav
+*.webm
+*.mp4
+
+coverage/
+npm-debug.log*
+```
+
+Do not ignore legitimate test fixtures that are JSON.
+
+Potential packages to remove only when confirmed unused:
+
+```text
+ytdl-core
+@distube/ytdl-core
+youtube-transcript
+youtube-transcript-api wrappers
+yt-dlp-exec
+youtube-dl-exec
+fluent-ffmpeg
+ffmpeg-static
+Whisper-specific packages
+Piped-specific packages
+```
+
+Do not remove packages used by unrelated application features.
+
+---
+
+# 22. Testing strategy
+
+Do not make live SerpApi calls in the default test suite.
+
+Mock the upstream HTTP request or SDK call.
+
+Live API tests consume quota and can fail because of network conditions.
+
+## 22.1 YouTube parser tests
+
+Test:
+
+```text
+watch URL
+youtu.be URL
+Shorts URL
+embed URL
+live URL
+raw video ID
+URL with extra query parameters
+playlist URL containing a valid v parameter
+invalid host
+empty input
+malformed video ID
+JavaScript-like malicious input
+extremely long input
+```
+
+## 22.2 Successful transcript tests
+
+Use a fixture containing:
+
+```text
+search_metadata.status = Success
+transcript segments
+chapters
+available transcripts
+```
+
+Assert:
+
+```text
+Correct normalized video ID
+Correct resolved language
+Correct segment mapping
+Correct chapter mapping
+Correct fullText
+No SerpApi link in normalized output
+No API key in output
+```
+
+## 22.3 Language fallback test
+
+Use a fixture where:
+
+```text
+requested language = tr
+selected transcript language = en
+```
+
+Assert that:
+
+```text
+requestedLanguageCode is tr
+resolvedLanguageCode is en
+```
+
+Do not falsely report Turkish.
+
+## 22.4 Empty transcript test
+
+Test:
+
+```json
+{
+  "search_metadata": {
+    "status": "Success"
+  },
+  "transcript": []
+}
+```
+
+Expect:
+
+```text
+TRANSCRIPT_UNAVAILABLE
+```
+
+## 22.5 Top-level error test
+
+Test a response containing:
+
+```json
+{
+  "error": "..."
+}
+```
+
+Assert that the internal error is classified and the raw message is not returned to the browser.
+
+## 22.6 Authentication test
+
+Mock HTTP `401`.
+
+Expect a server configuration/provider error.
+
+Ensure the response does not expose the API key or raw provider message.
+
+## 22.7 Quota test
+
+Mock HTTP `429`.
+
+Expect:
+
+```text
+TRANSCRIPT_SERVICE_LIMIT_REACHED
+```
+
+Assert no automatic retry.
+
+## 22.8 Upstream failure tests
+
+Mock:
+
+```text
+500
+503
+network timeout
+connection reset
+invalid JSON
+malformed transcript fields
+```
+
+Assert:
+
+```text
+At most one retry
+Correct final application error
+No unhandled Promise rejection
+```
+
+## 22.9 Cache test
+
+Call the same transcript service twice.
+
+Assert:
+
+```text
+One upstream request
+Second response marked as cache hit
+Equivalent normalized content
+```
+
+## 22.10 Concurrent deduplication test
+
+Start several identical requests before the first completes.
+
+Assert:
+
+```text
+One upstream request
+All callers receive the result
+The in-flight map is cleaned afterward
+```
+
+Repeat with a rejected upstream Promise and verify cleanup.
+
+## 22.11 Route test
+
+Mock both:
+
+```text
+Transcript service
+AI note-generation service
+```
+
+Verify:
+
+```text
+Valid request succeeds
+Invalid URL returns 400
+Unavailable transcript returns 422
+Provider limit returns 503
+AI failure is distinguished from transcript failure
+Existing frontend response contract remains valid
+```
+
+## 22.12 Optional live smoke test
+
+A live test may exist only behind an explicit environment flag:
+
+```dotenv
+RUN_LIVE_SERPAPI_TESTS=false
+```
+
+Skip it by default.
+
+Never run it automatically in normal CI or during every Render deployment.
+
+---
+
+# 23. Package scripts
+
+Update `package.json` to include clear scripts.
+
+Adapt the exact commands to the selected test framework.
+
+Example:
+
+```json
+{
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "test": "node --test",
+    "test:watch": "node --test --watch",
+    "test:live": "RUN_LIVE_SERPAPI_TESTS=true node --test tests/serpapi-live.test.js"
+  }
+}
+```
+
+Do not introduce Jest, Vitest, Mocha, or another test framework if the project already has a suitable framework without first evaluating the migration cost.
+
+Use the built-in Node test runner when it fits the existing runtime and project.
+
+---
+
+# 24. Render deployment
+
+Configure the SerpApi key through the Render dashboard, not through committed files.
+
+Required production variable:
+
+```text
+SERPAPI_API_KEY
+```
+
+Recommended variables:
+
+```text
+SERPAPI_TIMEOUT_MS
+SERPAPI_MAX_RETRIES
+SERPAPI_CACHE_TTL_MS
+DEFAULT_TRANSCRIPT_LANGUAGE
+TRANSCRIPT_REQUEST_LIMIT_WINDOW_MS
+TRANSCRIPT_REQUEST_LIMIT_MAX
+```
+
+Use:
+
+```text
+Build command: npm ci
+Start command: npm start
+```
+
+Confirm the exact commands against `package.json`.
+
+Add a lightweight health endpoint:
+
+```text
+GET /health
+```
+
+It should return:
+
+```json
+{
+  "status": "ok"
+}
+```
+
+The health endpoint must not make SerpApi or AI calls.
+
+Optionally report configuration booleans:
+
+```json
+{
+  "status": "ok",
+  "services": {
+    "transcriptProviderConfigured": true,
+    "noteProviderConfigured": true
+  }
+}
+```
+
+Do not reveal key values.
+
+Because Render instances can restart, do not rely on the local filesystem for transcript persistence.
+
+---
+
+# 25. README update
+
+Rewrite the README to include:
+
+1. Project description.
+2. Current architecture.
+3. Local installation.
+4. Required Node.js runtime.
+5. `.env.example` setup.
+6. SerpApi account and key setup.
+7. AI provider setup.
+8. Development command.
+9. Test command.
+10. Render deployment.
+11. API request example.
+12. API response example.
+13. Error codes.
+14. Cache behavior.
+15. Free-plan limitations.
+16. Security warning against exposing keys.
+17. Explanation that audio downloading, cookies, and direct YouTube scraping are no longer used.
+
+Do not claim that SerpApi provides unlimited free transcripts.
+
+Document that the free allowance and pricing may change and should be checked before production launch.
+
+---
+
+# 26. Implementation order
+
+Use this exact order unless repository inspection reveals a blocker.
+
+## Phase 1: Audit
+
+1. Read the existing server and frontend.
+2. Identify the active endpoint.
+3. Identify the note-generation code.
+4. Identify module format and runtime.
+5. Identify obsolete dependencies.
+6. Confirm secret handling.
+
+## Phase 2: Safety
+
+1. Fix `.gitignore`.
+2. Add `.env.example`.
+3. Remove secrets from tracked files.
+4. Add environment validation.
+
+## Phase 3: Core utilities
+
+1. Implement YouTube ID extraction.
+2. Implement application error type.
+3. Add transcript normalization utilities.
+4. Add unit tests.
+
+## Phase 4: SerpApi integration
+
+1. Implement the server-side request.
+2. Add timeout handling.
+3. Add error mapping.
+4. Add response validation.
+5. Add mocked tests.
+
+## Phase 5: Efficiency
+
+1. Add TTL cache.
+2. Add maximum cache size.
+3. Add in-flight deduplication.
+4. Add rate limiting.
+5. Test cache and concurrency.
+
+## Phase 6: Application integration
+
+1. Replace the old transcript call in the active endpoint.
+2. Preserve AI note generation.
+3. Preserve frontend response shape.
+4. Update frontend error handling.
+5. Run end-to-end tests.
+
+## Phase 7: Cleanup
+
+1. Remove obsolete audio files.
+2. Remove direct YouTube extraction scripts.
+3. Remove obsolete packages.
+4. Update `package-lock.json`.
+5. Search for dead imports and references.
+
+## Phase 8: Documentation and deployment
+
+1. Update README.
+2. Configure Render environment variables.
+3. Run production-mode tests.
+4. Deploy.
+5. Test one known captioned video.
+6. Test an invalid URL.
+7. Test a video without a usable transcript.
+8. Confirm no SerpApi key appears in browser network responses.
+
+---
+
+# 27. Prohibited implementation choices
+
+Do not:
+
+```text
+Download YouTube video or audio
+Run yt-dlp
+Run youtube-dl
+Call YouTube caption endpoints directly
+Use browser cookies
+Store YouTube cookies
+Automate Google login
+Rotate YouTube accounts
+Solve CAPTCHAs
+Use proxy rotation
+Call SerpApi from public/app.js
+Expose the SerpApi API key
+Store secrets in source code
+Retry 429 responses repeatedly
+Run live external calls in every test
+Use no_cache=true by default
+Log full transcripts
+Log AI prompts containing entire transcripts
+Return raw stack traces to users
+Delete the AI generation flow without replacing it
+Rewrite the frontend unnecessarily
+Change module systems without justification
+Add a database solely for this migration
+```
+
+---
+
+# 28. Acceptance criteria
+
+The task is complete only when all of the following are true.
+
+## Functional
+
+* A valid captioned YouTube URL produces study notes.
+* `youtu.be`, standard watch, Shorts, embed, and raw IDs are handled.
+* Invalid URLs are rejected before SerpApi is called.
+* The existing frontend remains usable.
+* The existing AI provider still generates notes.
+* Requested and resolved transcript languages are distinguished.
+* Videos without transcripts produce a clear error.
+* No audio or video is downloaded.
+
+## Security
+
+* The SerpApi key exists only in server-side environment configuration.
+* `.env` is ignored.
+* `.env.example` contains no real key.
+* Browser responses contain no key.
+* Logs contain no key.
+* Logs do not contain complete transcript contents.
+* Upstream error details are sanitized.
+
+## Reliability
+
+* SerpApi calls have a timeout.
+* Transient failures retry no more than configured.
+* `429`, `401`, and invalid input are not blindly retried.
+* Empty transcript arrays are not accepted as success.
+* Malformed responses do not crash the server.
+* Centralized error middleware returns consistent JSON.
+* The health endpoint does not depend on external APIs.
+
+## Efficiency
+
+* Successful transcripts are cached.
+* Simultaneous duplicate requests are deduplicated.
+* SerpApi caching remains enabled.
+* Endpoint rate limiting is active.
+* Live tests are disabled by default.
+* No unnecessary language-probing requests occur.
+
+## Cleanup
+
+* Root `.mp3` and `.m4a` artifacts are gone.
+* Obsolete extraction scripts are removed or deliberately archived.
+* Unused YouTube downloading packages are removed.
+* `package-lock.json` is synchronized.
+* No dead imports remain.
+* README reflects the new architecture.
+
+## Testing
+
+* URL parser tests pass.
+* Transcript normalization tests pass.
+* Empty transcript tests pass.
+* Authentication and quota tests pass.
+* Retry tests pass.
+* Cache tests pass.
+* Concurrent deduplication tests pass.
+* Route integration tests pass.
+* Existing note-generation tests continue to pass.
+
+---
+
+# 29. Final agent report
+
+After completing the work, provide a concise report containing:
+
+```text
+1. Files created
+2. Files modified
+3. Files deleted
+4. Packages added
+5. Packages removed
+6. Environment variables added
+7. Existing API contract changes
+8. Tests added
+9. Test command and results
+10. Render configuration required
+11. Remaining limitations
+12. Any keys that must be rotated
+```
+
+Also include a final tree of the project.
+
+Do not claim completion when tests fail.
+
+When something cannot be verified without a real SerpApi key, state that clearly and provide the exact manual verification command without embedding the key.

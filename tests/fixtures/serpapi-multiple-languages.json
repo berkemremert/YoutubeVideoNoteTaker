@@ -1,0 +1,10 @@
+{
+  "search_metadata": { "status": "Success" },
+  "transcript": [
+    { "start_ms": 0, "end_ms": 1000, "snippet": "English fallback text.", "start_time_text": "0:00" }
+  ],
+  "available_transcripts": [
+    { "language_name": "English", "language_code": "en", "type": "asr", "selected": true },
+    { "language_name": "Turkish", "language_code": "tr", "type": "manual", "selected": false }
+  ]
+}
