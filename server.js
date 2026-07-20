@@ -37,6 +37,36 @@ function extractVideoId(url) {
 
 const youtubedl = require('youtube-dl-exec');
 
+// Prepare cookies file if provided via environment variable
+let cookiesPath = null;
+if (process.env.YOUTUBE_COOKIES) {
+  try {
+    cookiesPath = path.join(os.tmpdir(), 'youtube-cookies.txt');
+    // Handle both literal newlines and escaped newlines (\n)
+    const cookiesContent = process.env.YOUTUBE_COOKIES.replace(/\\n/g, '\n');
+    fs.writeFileSync(cookiesPath, cookiesContent);
+    console.log('Debug: Initialized YouTube cookies from environment.');
+  } catch (err) {
+    console.error('Debug: Failed to write cookies file:', err);
+  }
+}
+
+function getYoutubeDlOptions(baseOptions = {}) {
+  const options = {
+    ...baseOptions,
+    // Provide a JS runtime to yt-dlp to avoid warnings
+    jsRuntimes: 'node',
+    // Try to bypass bot detection using Android client (less likely to get Captcha)
+    extractorArgs: 'youtube:player_client=android',
+  };
+  
+  if (cookiesPath) {
+    options.cookies = cookiesPath;
+  }
+  
+  return options;
+}
+
 async function transcribeAudioFallback(videoId) {
   if (!process.env.GROQ_API_KEY) {
     throw new Error('NO_CAPTIONS_AND_NO_GROQ_KEY');
@@ -46,10 +76,10 @@ async function transcribeAudioFallback(videoId) {
   const tmpFilePath = path.join(os.tmpdir(), `${videoId}.m4a`);
   
   console.log('Debug: Downloading audio for fallback transcription...');
-  await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
+  await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, getYoutubeDlOptions({
     format: 'bestaudio[ext=m4a]/bestaudio', // Native audio format to avoid needing ffmpeg
     output: tmpFilePath,
-  });
+  }));
 
   console.log('Debug: Audio downloaded, sending to Groq Whisper API...');
   try {
@@ -68,13 +98,13 @@ async function transcribeAudioFallback(videoId) {
 async function fetchTranscript(videoId) {
   // Use yt-dlp to extract the video metadata and subtitles
   // This bypasses most of YouTube's IP blocks
-  const output = await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
+  const output = await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, getYoutubeDlOptions({
     dumpJson: true,
     skipDownload: true,
     subLangs: 'all',
     writeAutoSubs: true,
     writeSubs: true,
-  });
+  }));
 
   let subUrl = null;
 
