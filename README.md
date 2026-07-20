@@ -56,6 +56,10 @@ Open `http://localhost:3000`.
 | `TRANSCRIPT_REQUEST_LIMIT_WINDOW_MS` | `900000` | Rate-limit window |
 | `TRANSCRIPT_REQUEST_LIMIT_MAX` | `10` | Requests per IP per window |
 | `FIREWORKS_API_KEY` | none | Required in production for note generation |
+| `FIREWORKS_SUMMARY_MODEL` | selected model | Optional faster model for intermediate long-video summaries |
+| `AI_TRANSCRIPT_CHUNK_CHARS` | `30000` | Approximate characters per long-transcript chunk |
+| `AI_CHUNK_CONCURRENCY` | `3` | Maximum simultaneous intermediate summaries |
+| `AI_CHUNK_SUMMARY_MAX_TOKENS` | `600` | Output limit for each intermediate summary |
 
 Invalid numeric configuration prevents startup. Production also refuses to start without both provider keys.
 

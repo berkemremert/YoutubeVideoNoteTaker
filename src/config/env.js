@@ -40,6 +40,10 @@ function loadConfig({ env = process.env } = {}) {
       fireworks: {
         apiKey: env.FIREWORKS_API_KEY || '',
         baseUrl: 'https://api.fireworks.ai/inference/v1',
+        summaryModel: env.FIREWORKS_SUMMARY_MODEL || '',
+        transcriptChunkChars: positiveInteger(env, 'AI_TRANSCRIPT_CHUNK_CHARS', 30000),
+        chunkConcurrency: positiveInteger(env, 'AI_CHUNK_CONCURRENCY', 3),
+        chunkSummaryMaxTokens: positiveInteger(env, 'AI_CHUNK_SUMMARY_MAX_TOKENS', 600),
       },
   };
 
