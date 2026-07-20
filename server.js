@@ -2,6 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const OpenAI = require('openai');
 
 const app = express();
@@ -16,6 +18,11 @@ const ai = new OpenAI({
   baseURL: 'https://api.fireworks.ai/inference/v1',
 });
 
+const groq = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: 'https://api.groq.com/openai/v1',
+});
+
 function extractVideoId(url) {
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/)([^&\n?#]+)/,
@@ -28,62 +35,90 @@ function extractVideoId(url) {
   return null;
 }
 
-// ── Custom YouTube transcript fetcher ────────────────────────
-const BROWSER_HEADERS = {
-  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
-  'Accept-Language': 'en-US,en;q=0.9',
-  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-};
+const youtubedl = require('youtube-dl-exec');
+
+async function transcribeAudioFallback(videoId) {
+  if (!process.env.GROQ_API_KEY) {
+    throw new Error('NO_CAPTIONS_AND_NO_GROQ_KEY');
+  }
+  
+  // We specify .webm or .m4a to ensure compatibility with Groq Whisper
+  const tmpFilePath = path.join(os.tmpdir(), `${videoId}.m4a`);
+  
+  console.log('Debug: Downloading audio for fallback transcription...');
+  await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
+    format: 'bestaudio[ext=m4a]/bestaudio', // Native audio format to avoid needing ffmpeg
+    output: tmpFilePath,
+  });
+
+  console.log('Debug: Audio downloaded, sending to Groq Whisper API...');
+  try {
+    const transcription = await groq.audio.transcriptions.create({
+      file: fs.createReadStream(tmpFilePath),
+      model: 'whisper-large-v3',
+    });
+    return transcription.text;
+  } finally {
+    if (fs.existsSync(tmpFilePath)) {
+      fs.unlinkSync(tmpFilePath);
+    }
+  }
+}
 
 async function fetchTranscript(videoId) {
-  // Step 1: Fetch the YouTube video page to extract caption track URLs
-  const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
-  const pageRes = await fetch(pageUrl, { headers: BROWSER_HEADERS });
+  // Use yt-dlp to extract the video metadata and subtitles
+  // This bypasses most of YouTube's IP blocks
+  const output = await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, {
+    dumpJson: true,
+    skipDownload: true,
+    subLangs: 'all',
+    writeAutoSubs: true,
+    writeSubs: true,
+  });
 
-  if (!pageRes.ok) {
-    throw new Error(`YouTube returned status ${pageRes.status}`);
+  let subUrl = null;
+
+  const subs = output.subtitles || {};
+  const autoSubs = output.automatic_captions || {};
+
+  // Find English first, otherwise pick the first available language
+  let selectedTrack = null;
+  
+  const getEn = (tracks) => tracks['en'] || tracks['en-US'] || tracks['en-GB'] || tracks['en-orig'];
+  const getFirst = (tracks) => {
+    const keys = Object.keys(tracks);
+    return keys.length > 0 ? tracks[keys[0]] : null;
+  };
+
+  selectedTrack = getEn(subs) || getEn(autoSubs) || getFirst(subs) || getFirst(autoSubs);
+
+  if (!selectedTrack || selectedTrack.length === 0) {
+    console.error('Debug: No suitable track found in subs or autoSubs');
+    console.error('Debug: Manual subs keys:', Object.keys(subs));
+    console.error('Debug: Auto subs keys:', Object.keys(autoSubs));
+    throw new Error('NO_CAPTIONS_TRACKS_NOT_FOUND');
   }
 
-  const html = await pageRes.text();
+  // Find json3 format which contains the easiest to parse text structure
+  const json3 = selectedTrack.find(s => s.ext === 'json3');
+  if (json3) {
+    subUrl = json3.url;
+    console.log('Debug: Found json3 URL:', subUrl.substring(0, 100) + '...');
+  } else {
+    console.error('Debug: json3 format not found in selected track');
+    console.error('Debug: Available formats:', selectedTrack.map(s => s.ext));
+    throw new Error('NO_CAPTIONS_JSON3_MISSING');
+  }
 
-  // Step 2: Extract captions data from the page
-  const captionMatch = html.match(/"captions":\s*(\{.*?"playerCaptionsTracklistRenderer".*?\})\s*,\s*"videoDetails"/s);
-  if (!captionMatch) {
-    // Check if the video exists at all
-    if (html.includes('"playabilityStatus":{"status":"ERROR"')) {
-      throw new Error('VIDEO_NOT_FOUND');
+  // Fetch the actual subtitle data
+  const capRes = await fetch(subUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
     }
-    throw new Error('NO_CAPTIONS');
-  }
-
-  let captionsData;
-  try {
-    // Extract just the playerCaptionsTracklistRenderer portion
-    const jsonStr = captionMatch[1];
-    captionsData = JSON.parse(jsonStr);
-  } catch {
-    throw new Error('NO_CAPTIONS');
-  }
-
-  const tracks = captionsData?.playerCaptionsTracklistRenderer?.captionTracks;
-  if (!tracks || tracks.length === 0) {
-    throw new Error('NO_CAPTIONS');
-  }
-
-  // Step 3: Prefer English, fall back to first available track
-  const enTrack = tracks.find(t => t.languageCode === 'en') ||
-                  tracks.find(t => t.languageCode?.startsWith('en')) ||
-                  tracks[0];
-
-  if (!enTrack?.baseUrl) {
-    throw new Error('NO_CAPTIONS');
-  }
-
-  // Step 4: Fetch the actual caption XML
-  const captionUrl = enTrack.baseUrl + '&fmt=json3';
-  const capRes = await fetch(captionUrl, { headers: BROWSER_HEADERS });
-
+  });
   if (!capRes.ok) {
+    console.error('Failed to fetch caption URL:', capRes.status, capRes.statusText);
     throw new Error('CAPTION_FETCH_FAILED');
   }
 
@@ -91,10 +126,11 @@ async function fetchTranscript(videoId) {
   const events = capData?.events;
 
   if (!events || events.length === 0) {
+    console.error('Caption fetch succeeded but no events/segments found.');
     throw new Error('NO_CAPTIONS');
   }
 
-  // Step 5: Extract text segments
+  // Extract text segments
   const segments = events
     .filter(e => e.segs)
     .map(e => e.segs.map(s => s.utf8).join(''))
@@ -176,22 +212,36 @@ app.post('/api/generate-notes', async (req, res) => {
 
   try {
     let segments;
+    let transcriptText = '';
+    
     try {
       segments = await fetchTranscript(videoId);
+      transcriptText = segments.join(' ');
     } catch (err) {
       console.error('Transcript error:', err.message);
       if (err.message === 'VIDEO_NOT_FOUND') {
         return res.status(404).json({ error: 'Video not found. Please check the URL.' });
       }
-      if (err.message === 'NO_CAPTIONS' || err.message === 'CAPTION_FETCH_FAILED') {
-        return res.status(422).json({ error: 'This video does not have captions/subtitles available.' });
+      
+      // If captions are missing, try audio transcription fallback
+      if (err.message.includes('NO_CAPTIONS') || err.message === 'CAPTION_FETCH_FAILED') {
+        try {
+          console.log('Debug: Attempting audio transcription fallback...');
+          transcriptText = await transcribeAudioFallback(videoId);
+        } catch (audioErr) {
+          console.error('Audio Fallback error:', audioErr.message);
+          if (audioErr.message === 'NO_CAPTIONS_AND_NO_GROQ_KEY') {
+            return res.status(422).json({ error: 'This video has no captions, and no GROQ_API_KEY is set for audio transcription fallback.' });
+          }
+          return res.status(500).json({ error: 'Video has no captions, and audio transcription fallback failed.' });
+        }
+      } else {
+        return res.status(500).json({ error: `Could not fetch transcript: ${err.message}` });
       }
-      return res.status(500).json({ error: `Could not fetch transcript: ${err.message}` });
     }
 
-    const transcript = segments.join(' ');
-    if (transcript.trim().length < 50) {
-      return res.status(422).json({ error: 'Transcript is too short or empty.' });
+    if (transcriptText.trim().length < 15) {
+      return res.status(422).json({ error: 'Transcript is too short or empty. There is not enough spoken content in this video to take notes on.' });
     }
 
     const stylePrompts = {
@@ -218,7 +268,7 @@ Write clearly and concisely. No filler text or padding.`;
       model,
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Video transcript:\n\n${transcript.substring(0, 12000)}` },
+        { role: 'user', content: `Video transcript:\n\n${transcriptText.substring(0, 12000)}` },
       ],
       max_tokens,
       temperature,
@@ -231,7 +281,7 @@ Write clearly and concisely. No filler text or padding.`;
       success: true,
       videoId,
       videoUrl: `https://www.youtube.com/watch?v=${videoId}`,
-      wordCount: transcript.split(/\s+/).length,
+      wordCount: transcriptText.split(/\s+/).length,
       notes,
     });
   } catch (err) {
