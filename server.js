@@ -56,12 +56,14 @@ function getYoutubeDlOptions(baseOptions = {}) {
     ...baseOptions,
     // Provide a JS runtime to yt-dlp to avoid warnings
     jsRuntimes: 'node',
-    // Try to bypass bot detection using Android client (less likely to get Captcha)
-    extractorArgs: 'youtube:player_client=android',
   };
   
   if (cookiesPath) {
     options.cookies = cookiesPath;
+    // When using cookies, let yt-dlp use default clients (web)
+  } else {
+    // Try ios and web clients to bypass bot detection without breaking formats
+    options.extractorArgs = 'youtube:player_client=ios,web';
   }
   
   return options;
@@ -77,7 +79,7 @@ async function transcribeAudioFallback(videoId) {
   
   console.log('Debug: Downloading audio for fallback transcription...');
   await youtubedl(`https://www.youtube.com/watch?v=${videoId}`, getYoutubeDlOptions({
-    format: 'bestaudio[ext=m4a]/bestaudio', // Native audio format to avoid needing ffmpeg
+    format: 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best', // Provide more fallbacks
     output: tmpFilePath,
   }));
 
