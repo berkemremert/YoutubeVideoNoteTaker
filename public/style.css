@@ -572,7 +572,7 @@ svg { display: block; flex-shrink: 0; }
 .notes-content ul,
 .notes-content ol { padding-left: 18px; margin-bottom: 10px; }
 .notes-content li { margin-bottom: 4px; }
-.notes-content li::marker { color: var(--border); }
+.notes-content li::marker { color: var(--text-2); }
 .notes-content strong { color: var(--text); font-weight: 600; }
 .notes-content em { color: #c4b5fd; font-style: italic; }
 .notes-content code {

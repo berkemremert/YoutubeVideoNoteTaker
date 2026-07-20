@@ -284,7 +284,10 @@ function showResults(data) {
     <span class="stat-chip">${(data.wordCount || 0).toLocaleString()} words</span>
     <span class="stat-chip">AI notes</span>
   `;
-  notesContent.innerHTML = marked.parse(data.notes || '');
+  notesContent.innerHTML = renderMarkdown(data.notes || '');
+  if (window.MathJax) {
+    MathJax.typesetPromise([notesContent]).catch(console.error);
+  }
   resultsCard.style.display = 'block';
   resultsCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -586,7 +589,7 @@ function exportPDF(results) {
   const body = results.map(r => `
     <section class="section">
       <h1>${escHtml(r.name)}</h1>
-      <div class="body">${marked.parse(r.notes || '')}</div>
+      <div class="body">${renderMarkdown(r.notes || '')}</div>
     </section>
   `).join('<div class="break"></div>');
 
@@ -616,7 +619,19 @@ function exportPDF(results) {
   @media print{.break{border:none}}
 </style>
 </head><body>${body}
-<script>window.onload=()=>setTimeout(()=>window.print(),350);<\/script>
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['\\\\(', '\\\\)']], displayMath: [['\\\\[', '\\\\]']] },
+    startup: {
+      pageReady: () => {
+        return MathJax.startup.defaultPageReady().then(() => {
+          setTimeout(() => window.print(), 350);
+        });
+      }
+    }
+  };
+</script>
+<script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
 </body></html>`);
   win.document.close();
 }
@@ -630,4 +645,11 @@ function escHtml(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function renderMarkdown(md) {
+  if (!md) return '';
+  let escaped = md.replace(/\\\(/g, '\\\\(').replace(/\\\)/g, '\\\\)');
+  escaped = escaped.replace(/\\\[/g, '\\\\[').replace(/\\\]/g, '\\\\]');
+  return marked.parse(escaped);
 }

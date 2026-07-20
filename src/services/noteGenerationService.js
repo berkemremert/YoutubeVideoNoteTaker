@@ -36,6 +36,7 @@ Use this Markdown structure:
 ${stylePrompt}
 
 Write clearly and concisely. No filler text or padding.
+Format all mathematical equations and formulas using standard LaTeX math delimiters. Wrap inline math in \\( and \\), and block math in \\[ and \\].
 CRITICAL INSTRUCTION: Output ONLY the requested Markdown notes. Do NOT output your thought process. Do NOT start by saying "The user wants me to..." or provide any conversational filler. Start your response directly with "## Key Takeaways".`;
 
     const transcriptText = toTimestampedText(transcript.segments);
