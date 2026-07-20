@@ -2,9 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { YoutubeTranscript } = require('youtube-transcript');
 const OpenAI = require('openai');
-
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -28,6 +26,85 @@ function extractVideoId(url) {
     if (m) return m[1];
   }
   return null;
+}
+
+// ── Custom YouTube transcript fetcher ────────────────────────
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+};
+
+async function fetchTranscript(videoId) {
+  // Step 1: Fetch the YouTube video page to extract caption track URLs
+  const pageUrl = `https://www.youtube.com/watch?v=${videoId}`;
+  const pageRes = await fetch(pageUrl, { headers: BROWSER_HEADERS });
+
+  if (!pageRes.ok) {
+    throw new Error(`YouTube returned status ${pageRes.status}`);
+  }
+
+  const html = await pageRes.text();
+
+  // Step 2: Extract captions data from the page
+  const captionMatch = html.match(/"captions":\s*(\{.*?"playerCaptionsTracklistRenderer".*?\})\s*,\s*"videoDetails"/s);
+  if (!captionMatch) {
+    // Check if the video exists at all
+    if (html.includes('"playabilityStatus":{"status":"ERROR"')) {
+      throw new Error('VIDEO_NOT_FOUND');
+    }
+    throw new Error('NO_CAPTIONS');
+  }
+
+  let captionsData;
+  try {
+    // Extract just the playerCaptionsTracklistRenderer portion
+    const jsonStr = captionMatch[1];
+    captionsData = JSON.parse(jsonStr);
+  } catch {
+    throw new Error('NO_CAPTIONS');
+  }
+
+  const tracks = captionsData?.playerCaptionsTracklistRenderer?.captionTracks;
+  if (!tracks || tracks.length === 0) {
+    throw new Error('NO_CAPTIONS');
+  }
+
+  // Step 3: Prefer English, fall back to first available track
+  const enTrack = tracks.find(t => t.languageCode === 'en') ||
+                  tracks.find(t => t.languageCode?.startsWith('en')) ||
+                  tracks[0];
+
+  if (!enTrack?.baseUrl) {
+    throw new Error('NO_CAPTIONS');
+  }
+
+  // Step 4: Fetch the actual caption XML
+  const captionUrl = enTrack.baseUrl + '&fmt=json3';
+  const capRes = await fetch(captionUrl, { headers: BROWSER_HEADERS });
+
+  if (!capRes.ok) {
+    throw new Error('CAPTION_FETCH_FAILED');
+  }
+
+  const capData = await capRes.json();
+  const events = capData?.events;
+
+  if (!events || events.length === 0) {
+    throw new Error('NO_CAPTIONS');
+  }
+
+  // Step 5: Extract text segments
+  const segments = events
+    .filter(e => e.segs)
+    .map(e => e.segs.map(s => s.utf8).join(''))
+    .filter(t => t.trim());
+
+  if (segments.length === 0) {
+    throw new Error('NO_CAPTIONS');
+  }
+
+  return segments;
 }
 
 const MODEL_DISPLAY_NAMES = {
@@ -98,18 +175,21 @@ app.post('/api/generate-notes', async (req, res) => {
   const { max_tokens, temperature } = EFFORT_CONFIG[effort] ?? EFFORT_CONFIG.standard;
 
   try {
-    let transcriptItems;
+    let segments;
     try {
-      transcriptItems = await YoutubeTranscript.fetchTranscript(videoId);
+      segments = await fetchTranscript(videoId);
     } catch (err) {
-      const msg = (err.message || '').toLowerCase();
-      if (msg.includes('disabled') || msg.includes('no transcript') || msg.includes('could not retrieve')) {
-        return res.status(422).json({ error: 'This video does not have captions enabled.' });
+      console.error('Transcript error:', err.message);
+      if (err.message === 'VIDEO_NOT_FOUND') {
+        return res.status(404).json({ error: 'Video not found. Please check the URL.' });
       }
-      throw err;
+      if (err.message === 'NO_CAPTIONS' || err.message === 'CAPTION_FETCH_FAILED') {
+        return res.status(422).json({ error: 'This video does not have captions/subtitles available.' });
+      }
+      return res.status(500).json({ error: `Could not fetch transcript: ${err.message}` });
     }
 
-    const transcript = transcriptItems.map(i => i.text).join(' ');
+    const transcript = segments.join(' ');
     if (transcript.trim().length < 50) {
       return res.status(422).json({ error: 'Transcript is too short or empty.' });
     }
